@@ -1,3 +1,0 @@
-model_checkpoint_path: "model.weights-160000"
-all_model_checkpoint_paths: "../ckpt158000/model.weights-158000"
-all_model_checkpoint_paths: "model.weights-160000"
