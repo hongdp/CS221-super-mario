@@ -75,7 +75,7 @@ def cmd_eval(ns: argparse.Namespace) -> None:
     model, ckpt = load_policy(ns.checkpoint)
     env_cfg = EnvConfig(**ckpt["env_config"])
     model.share_memory()
-    pool = WorkerPool(ns.num_envs, env_cfg, model, ns.seed, gamma=0.99)
+    pool = WorkerPool(ns.num_envs, env_cfg, model, ns.seed)
     try:
         report = {"checkpoint": str(ns.checkpoint), "global_step": ckpt["global_step"]}
         for spec in ns.levels:

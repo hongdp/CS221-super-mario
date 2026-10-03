@@ -8,7 +8,16 @@ from mario_rl.cli import main as cli_main
 from mario_rl.env import EnvConfig
 from mario_rl.models import ActorCritic
 from mario_rl.plr import LevelSampler
-from mario_rl.ppo import PPOConfig, compute_gae, load_policy, plr_scores, train
+from mario_rl.ppo import (
+    PPOConfig,
+    RewardNormalizer,
+    RunningMeanStd,
+    compute_gae,
+    load_policy,
+    plr_scores,
+    train,
+)
+from mario_rl.workers import Rollout
 
 
 def reference_gae(rewards, values, dones, next_value, gamma, lam):
@@ -76,6 +85,39 @@ def test_actor_critic_shapes_and_logprobs(obs_type, shape):
     assert (entropy > 0).all()
     greedy, _, _ = model.act(obs, greedy=True)
     torch.testing.assert_close(greedy, logits.argmax(-1))
+
+
+def test_running_mean_std_matches_numpy():
+    rng = np.random.default_rng(1)
+    data = rng.normal(3.0, 2.0, size=1000)
+    rms = RunningMeanStd()
+    for chunk in np.split(data, 10):
+        rms.update(chunk)
+    assert rms.mean == pytest.approx(data.mean(), rel=1e-3)
+    assert rms.var == pytest.approx(data.var(), rel=1e-2)
+
+
+def test_reward_normalizer_scales_by_return_std():
+    def rollout(rewards, dones):
+        n = len(rewards)
+        z = np.zeros(n, dtype=np.float32)
+        return Rollout(np.zeros((n, 1)), z.astype(np.int64), z, z, np.asarray(rewards, np.float32), z,
+                       np.asarray(dones), z.astype(np.int16), 0.0)  # fmt: skip
+
+    norm = RewardNormalizer(num_envs=2, gamma=0.9)
+    ros = [rollout([10.0] * 50, [False] * 49 + [True]), rollout([5.0] * 50, [False] * 50)]
+    scaled = norm(ros)
+    assert norm.scale > 1.0
+    np.testing.assert_allclose(scaled[0], 10.0 / norm.scale, rtol=1e-6)
+    assert norm.returns[0] == 0.0 and norm.returns[1] > 0  # episode boundary resets the return
+
+
+def test_separate_encoders_have_disjoint_parameter_groups():
+    model = ActorCritic("tiles", (4, 13, 16), 7)
+    actor, critic = model.parameter_groups()
+    assert not {id(p) for p in actor} & {id(p) for p in critic}
+    assert len(actor) + len(critic) == len(list(model.parameters()))
+    assert len(ActorCritic("tiles", (4, 13, 16), 7, shared=True).parameter_groups()) == 1
 
 
 @pytest.mark.slow

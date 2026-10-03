@@ -38,7 +38,9 @@ class PPOConfig:
     clip_coef: float = 0.2
     ent_coef: float = 0.01
     vf_coef: float = 0.5
-    max_grad_norm: float = 0.5
+    max_grad_norm: float = 0.5  # applied separately to the actor and the critic
+    shared_encoder: bool = False
+    norm_reward: bool = True  # divide rewards by the running std of discounted returns
     level_sampler: str = "uniform"  # "uniform" or "plr"
     plr_temperature: float = 0.1
     plr_staleness: float = 0.1
@@ -82,6 +84,57 @@ def plr_scores(adv: np.ndarray, dones: np.ndarray, level_ids: np.ndarray):
             start = t + 1
 
 
+class RunningMeanStd:
+    """Running variance of a stream of scalars (parallel Welford update)."""
+
+    def __init__(self):
+        self.mean, self.var, self.count = 0.0, 1.0, 1e-4
+
+    def update(self, x: np.ndarray) -> None:
+        b_mean, b_var, b_count = float(np.mean(x)), float(np.var(x)), len(x)
+        delta = b_mean - self.mean
+        total = self.count + b_count
+        self.mean += delta * b_count / total
+        m2 = self.var * self.count + b_var * b_count + delta**2 * self.count * b_count / total
+        self.var = m2 / total
+        self.count = total
+
+    def state_dict(self) -> dict:
+        return {"mean": self.mean, "var": self.var, "count": self.count}
+
+    def load_state_dict(self, state: dict) -> None:
+        self.mean, self.var, self.count = state["mean"], state["var"], state["count"]
+
+
+class RewardNormalizer:
+    """Scale rewards by the std of the discounted return, tracked per env stream."""
+
+    def __init__(self, num_envs: int, gamma: float):
+        self.gamma = gamma
+        self.returns = np.zeros(num_envs)
+        self.rms = RunningMeanStd()
+
+    def __call__(self, rollouts) -> list[np.ndarray]:
+        streams = []
+        for i, ro in enumerate(rollouts):
+            ret = np.empty(len(ro.rewards))
+            acc = self.returns[i]
+            for t, (r, done) in enumerate(zip(ro.rewards, ro.dones, strict=True)):
+                acc = acc * self.gamma + r
+                ret[t] = acc
+                if done:
+                    acc = 0.0
+            self.returns[i] = acc
+            streams.append(ret)
+        self.rms.update(np.concatenate(streams))
+        scale = np.sqrt(self.rms.var + 1e-8)
+        return [(ro.rewards / scale).astype(np.float32) for ro in rollouts]
+
+    @property
+    def scale(self) -> float:
+        return float(np.sqrt(self.rms.var + 1e-8))
+
+
 class Logger:
     def __init__(self, run_dir: Path):
         self.file = open(run_dir / "metrics.jsonl", "a")  # noqa: SIM115 (closed in close())
@@ -106,7 +159,7 @@ class Logger:
             self.tb.close()
 
 
-def save_checkpoint(path: Path, model, optimizer, sampler, cfg, env_cfg, step, update) -> None:
+def save_checkpoint(path: Path, model, optimizer, sampler, normalizer, cfg, env_cfg, step, update) -> None:
     tmp = path.with_suffix(".tmp")
     torch.save(
         {
@@ -114,6 +167,7 @@ def save_checkpoint(path: Path, model, optimizer, sampler, cfg, env_cfg, step, u
             "model_spec": model.spec(),
             "optimizer": optimizer.state_dict(),
             "sampler": sampler.state_dict(),
+            "reward_rms": normalizer.rms.state_dict(),
             "ppo_config": asdict(cfg),
             "env_config": env_cfg.to_dict(),
             "global_step": step,
@@ -127,7 +181,9 @@ def save_checkpoint(path: Path, model, optimizer, sampler, cfg, env_cfg, step, u
 def load_policy(path: str | Path) -> tuple[ActorCritic, dict]:
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
     spec = ckpt["model_spec"]
-    model = ActorCritic(spec["obs_type"], tuple(spec["obs_shape"]), spec["n_actions"])
+    model = ActorCritic(
+        spec["obs_type"], tuple(spec["obs_shape"]), spec["n_actions"], spec.get("shared", False)
+    )
     model.load_state_dict(ckpt["model"])
     model.eval()
     return model, ckpt
@@ -151,15 +207,18 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
         )
 
     obs_type, obs_shape, n_actions = observation_spec(env_cfg)
-    model = ActorCritic(obs_type, obs_shape, n_actions)
+    model = ActorCritic(obs_type, obs_shape, n_actions, shared=cfg.shared_encoder)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, eps=1e-5)
     train_levels = parse_levels(env_cfg.levels)
     sampler = LevelSampler(len(train_levels), cfg.level_sampler, cfg.plr_temperature, cfg.plr_staleness)
+    normalizer = RewardNormalizer(cfg.num_envs, cfg.gamma)
     global_step, start_update = 0, 1
     if ckpt is not None:
         model.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optimizer"])
         sampler.load_state_dict(ckpt["sampler"])
+        if "reward_rms" in ckpt:
+            normalizer.rms.load_state_dict(ckpt["reward_rms"])
         global_step, start_update = ckpt["global_step"], ckpt["update"] + 1
     model.share_memory()  # workers read the learner's weights directly
 
@@ -168,7 +227,7 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
     num_updates = cfg.total_steps // batch_size
     eval_levels = parse_levels(cfg.eval_levels)
     logger = Logger(run_dir)
-    pool = WorkerPool(cfg.num_envs, env_cfg, model, cfg.seed, cfg.gamma)
+    pool = WorkerPool(cfg.num_envs, env_cfg, model, cfg.seed)
     print(f"run dir: {run_dir}")
     print(f"training on {len(train_levels)} levels: {' '.join(map(str, train_levels))}")
     print(f"held-out eval levels: {' '.join(map(str, eval_levels))}")
@@ -186,9 +245,12 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
             t_rollout = time.time() - t0
             global_step += batch_size
 
+            rewards = normalizer(rollouts) if cfg.norm_reward else [ro.rewards for ro in rollouts]
             advantages = []
-            for ro in rollouts:
-                adv = compute_gae(ro.rewards, ro.values, ro.dones, ro.next_value, cfg.gamma, cfg.gae_lambda)
+            for ro, rew in zip(rollouts, rewards, strict=True):
+                # truncated episodes bootstrap from V(final obs), already in value units
+                rew = rew + cfg.gamma * ro.bootstrap
+                adv = compute_gae(rew, ro.values, ro.dones, ro.next_value, cfg.gamma, cfg.gae_lambda)
                 advantages.append(adv)
                 for level_id, score in plr_scores(adv, ro.dones, ro.level_ids):
                     sampler.update(level_id, score)
@@ -213,6 +275,7 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
                 "lr": optimizer.param_groups[0]["lr"],
                 "sps": batch_size / elapsed,
                 "rollout_sps": batch_size / t_rollout,
+                "reward_scale": normalizer.scale,
             }
             if episodes:
                 metrics["train/episodes"] = len(episodes)
@@ -243,16 +306,33 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
                     model,
                     optimizer,
                     sampler,
+                    normalizer,
                     cfg,
                     env_cfg,
                     global_step,
                     update,
                 )
                 save_checkpoint(
-                    run_dir / "latest.pt", model, optimizer, sampler, cfg, env_cfg, global_step, update
+                    run_dir / "latest.pt",
+                    model,
+                    optimizer,
+                    sampler,
+                    normalizer,
+                    cfg,
+                    env_cfg,
+                    global_step,
+                    update,
                 )
         save_checkpoint(
-            run_dir / "latest.pt", model, optimizer, sampler, cfg, env_cfg, global_step, num_updates
+            run_dir / "latest.pt",
+            model,
+            optimizer,
+            sampler,
+            normalizer,
+            cfg,
+            env_cfg,
+            global_step,
+            num_updates,
         )
         if cfg.eval_interval and last_eval_step != global_step:
             logger.log(
@@ -285,7 +365,8 @@ def _ppo_update(model, optimizer, cfg, b_obs, b_actions, b_logprobs, b_returns, 
             loss = pg_loss - cfg.ent_coef * ent + cfg.vf_coef * v_loss
             optimizer.zero_grad()
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
+            for group in model.parameter_groups():
+                nn.utils.clip_grad_norm_(group, cfg.max_grad_norm)
             optimizer.step()
             pg_losses.append(pg_loss.item())
             v_losses.append(v_loss.item())

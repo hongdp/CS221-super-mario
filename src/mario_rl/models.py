@@ -72,27 +72,51 @@ class PixelEncoder(nn.Module):
         return self.fc(self.net(obs.float() / 255.0))
 
 
+def _encoder(obs_type: str, obs_shape: tuple[int, ...]) -> nn.Module:
+    if obs_type == "tiles":
+        return TileEncoder(obs_shape)
+    if obs_type == "pixels":
+        return PixelEncoder(obs_shape)
+    raise ValueError(f"unknown observation type {obs_type!r}")
+
+
 class ActorCritic(nn.Module):
-    def __init__(self, obs_type: str, obs_shape: tuple[int, ...], n_actions: int):
+    """Policy and value networks.
+
+    By default the actor and critic have separate encoders: with a shared trunk
+    the (much larger) value-loss gradients dominate the features and the
+    policy struggles to condition on the state; decoupling also helps
+    generalization (Raileanu & Fergus, 2021, "Decoupling Value and Policy for
+    Generalization in RL"). ``shared=True`` restores a single trunk.
+    """
+
+    def __init__(self, obs_type: str, obs_shape: tuple[int, ...], n_actions: int, shared: bool = False):
         super().__init__()
         self.obs_type = obs_type
         self.obs_shape = tuple(obs_shape)
         self.n_actions = n_actions
-        if obs_type == "tiles":
-            self.encoder: nn.Module = TileEncoder(self.obs_shape)
-        elif obs_type == "pixels":
-            self.encoder = PixelEncoder(self.obs_shape)
-        else:
-            raise ValueError(f"unknown observation type {obs_type!r}")
-        self.policy = _init(nn.Linear(self.encoder.out_dim, n_actions), gain=0.01)
-        self.value = _init(nn.Linear(self.encoder.out_dim, 1), gain=1.0)
+        self.shared = shared
+        self.actor_encoder = _encoder(obs_type, self.obs_shape)
+        self.critic_encoder = None if shared else _encoder(obs_type, self.obs_shape)
+        self.policy = _init(nn.Linear(self.actor_encoder.out_dim, n_actions), gain=0.01)
+        self.value = _init(nn.Linear(self.actor_encoder.out_dim, 1), gain=1.0)
 
     def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        h = self.encoder(obs)
-        return self.policy(h), self.value(h).squeeze(-1)
+        h = self.actor_encoder(obs)
+        h_v = h if self.critic_encoder is None else self.critic_encoder(obs)
+        return self.policy(h), self.value(h_v).squeeze(-1)
 
     def get_value(self, obs: torch.Tensor) -> torch.Tensor:
-        return self.value(self.encoder(obs)).squeeze(-1)
+        encoder = self.actor_encoder if self.critic_encoder is None else self.critic_encoder
+        return self.value(encoder(obs)).squeeze(-1)
+
+    def parameter_groups(self) -> list[list[nn.Parameter]]:
+        """Parameter groups whose gradients are clipped independently."""
+        if self.critic_encoder is None:
+            return [list(self.parameters())]
+        actor = [*self.actor_encoder.parameters(), *self.policy.parameters()]
+        critic = [*self.critic_encoder.parameters(), *self.value.parameters()]
+        return [actor, critic]
 
     def act(
         self, obs: torch.Tensor, greedy: bool = False, generator: torch.Generator | None = None
@@ -116,4 +140,9 @@ class ActorCritic(nn.Module):
         return dist.log_prob(actions), dist.entropy(), value
 
     def spec(self) -> dict:
-        return {"obs_type": self.obs_type, "obs_shape": self.obs_shape, "n_actions": self.n_actions}
+        return {
+            "obs_type": self.obs_type,
+            "obs_shape": self.obs_shape,
+            "n_actions": self.n_actions,
+            "shared": self.shared,
+        }

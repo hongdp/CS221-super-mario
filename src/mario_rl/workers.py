@@ -27,7 +27,8 @@ class Rollout:
     actions: np.ndarray  # (T,) int64
     logprobs: np.ndarray  # (T,) float32
     values: np.ndarray  # (T,) float32
-    rewards: np.ndarray  # (T,) float32, truncations already bootstrapped
+    rewards: np.ndarray  # (T,) float32, raw environment rewards
+    bootstrap: np.ndarray  # (T,) float32, V(final obs) where an episode was truncated, else 0
     dones: np.ndarray  # (T,) bool, episode ended after step t
     level_ids: np.ndarray  # (T,) int16
     next_value: float
@@ -43,7 +44,7 @@ def _run_episode(env: MarioEnv, model: ActorCritic, level, greedy: bool, gen) ->
             return {"level": info["level"], **info["episode"]}
 
 
-def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int, gamma: float):
+def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int):
     torch.set_num_threads(1)
     try:
         env = MarioEnv(EnvConfig(**env_config))
@@ -61,6 +62,7 @@ def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int, g
                 logprobs = np.empty(num_steps, dtype=np.float32)
                 values = np.empty(num_steps, dtype=np.float32)
                 rewards = np.empty(num_steps, dtype=np.float32)
+                bootstrap = np.zeros(num_steps, dtype=np.float32)
                 dones = np.empty(num_steps, dtype=bool)
                 level_ids = np.empty(num_steps, dtype=np.int16)
                 episodes = []
@@ -73,7 +75,7 @@ def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int, g
                         if truncated and not terminated:
                             # Time-limit / stuck truncation is not a real terminal
                             # state: bootstrap from the value of the final observation.
-                            reward += gamma * float(model.get_value(torch.from_numpy(obs)[None]))
+                            bootstrap[t] = float(model.get_value(torch.from_numpy(obs)[None]))
                         actions[t] = int(action)
                         logprobs[t] = float(logprob)
                         values[t] = float(value)
@@ -87,7 +89,7 @@ def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int, g
                     (
                         "ok",
                         Rollout(
-                            buf_obs, actions, logprobs, values, rewards, dones, level_ids,
+                            buf_obs, actions, logprobs, values, rewards, bootstrap, dones, level_ids,
                             next_value, episodes,
                         ),
                     )
@@ -109,7 +111,7 @@ def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int, g
 
 
 class WorkerPool:
-    def __init__(self, num_workers: int, env_config: EnvConfig, model: ActorCritic, seed: int, gamma: float):
+    def __init__(self, num_workers: int, env_config: EnvConfig, model: ActorCritic, seed: int):
         ctx = mp.get_context("spawn")
         self.conns = []
         self.procs = []
@@ -117,7 +119,7 @@ class WorkerPool:
             parent, child = ctx.Pipe()
             proc = ctx.Process(
                 target=_worker,
-                args=(i, child, env_config.to_dict(), model, seed + 1000 * i, gamma),
+                args=(i, child, env_config.to_dict(), model, seed + 1000 * i),
                 daemon=True,
             )
             proc.start()
