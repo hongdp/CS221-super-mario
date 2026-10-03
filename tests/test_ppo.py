@@ -115,3 +115,9 @@ def test_end_to_end_train_eval_play(tmp_path):
     cli_main(["eval", str(run_dir / "latest.pt"), "--levels", "1-1", "--episodes", "1",
               "--num-envs", "1", "--output", str(report)])  # fmt: skip
     assert json.loads(report.read_text())["1-1"]["levels"]["1-1"]["episodes"] == 1
+
+    # resuming keeps the saved configuration and continues the step counter
+    cli_main(["train", "--resume", str(run_dir / "latest.pt"), "--total-steps", "192"])
+    _, ckpt = load_policy(run_dir / "latest.pt")
+    assert ckpt["global_step"] == 192
+    assert ckpt["env_config"]["max_episode_steps"] == 40

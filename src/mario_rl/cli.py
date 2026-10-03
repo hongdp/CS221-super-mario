@@ -53,8 +53,19 @@ def _levels_arg(spec: str) -> tuple[str, ...]:
 
 
 def cmd_train(ns: argparse.Namespace) -> None:
-    env_cfg = _build(EnvConfig, ns, levels=_levels_arg(ns.levels))
-    ppo_cfg = _build(PPOConfig, ns)
+    if ns.resume:
+        # Continue with the saved configuration; only --total-steps may be raised.
+        import torch
+
+        ckpt = torch.load(ns.resume, map_location="cpu", weights_only=False)
+        env_cfg = EnvConfig(**ckpt["env_config"])
+        saved = dict(ckpt["ppo_config"])
+        saved["total_steps"] = max(saved["total_steps"], ns.total_steps)
+        saved["resume"] = ns.resume
+        ppo_cfg = PPOConfig(**saved)
+    else:
+        env_cfg = _build(EnvConfig, ns, levels=_levels_arg(ns.levels))
+        ppo_cfg = _build(PPOConfig, ns)
     train(ppo_cfg, env_cfg)
 
 
