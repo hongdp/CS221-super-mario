@@ -35,6 +35,9 @@ class EnvConfig:
     frame_skip: int = 4
     frame_stack: int = 4
     noop_max: int = 30  # random idle frames after reset, varies enemy timing
+    # Probability that a frame repeats the previous frame's buttons instead of the
+    # chosen ones (Machado et al., 2018); breaks memorized open-loop action sequences.
+    sticky_prob: float = 0.0
     max_episode_steps: int = 3000
     stuck_steps: int = 250  # truncate when the furthest x has not improved for this long
     # reward = scale * (dx - time_penalty * clock_ticks + death/flag terms)
@@ -133,7 +136,12 @@ class MarioEnv(gym.Env):
         dead = flag = False
         ram = None
         for _ in range(cfg.frame_skip):
-            game.frame(buttons)
+            if cfg.sticky_prob and self.np_random.random() < cfg.sticky_prob:
+                pressed = self._last_buttons
+            else:
+                pressed = buttons
+            self._last_buttons = pressed
+            game.frame(pressed)
             ram = game.ram()
             if smb.is_busy(ram) and not smb.flag_get(ram) and not smb.is_dead(ram):
                 game.skip_cutscenes()  # pipes, vines, area changes
@@ -197,6 +205,7 @@ class MarioEnv(gym.Env):
 
     # --- helpers ---------------------------------------------------------------
     def _reset_episode_state(self, ram: np.ndarray | None = None) -> None:
+        self._last_buttons = 0
         self._steps = 0
         self._return = 0.0
         self._flag = False

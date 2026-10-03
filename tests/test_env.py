@@ -106,3 +106,18 @@ def test_forced_level_outside_training_set():
                 break
         assert info["episode"]["level_id"] == -1
         assert env.level == Level(8, 3)
+
+
+def test_sticky_actions():
+    with closing(MarioEnv(levels=("1-1",), noop_max=0, sticky_prob=1.0)) as env:
+        _, info = env.reset(seed=0)
+        start = info["x_pos"]
+        for _ in range(10):
+            _, _, _, _, info = env.step(RIGHT)  # every frame repeats the initial NOOP
+        assert info["x_pos"] == start
+    with closing(MarioEnv(levels=("1-1",), noop_max=0, sticky_prob=0.25)) as env:
+        _, info = env.reset(seed=0)
+        start = info["x_pos"]
+        for _ in range(10):
+            _, _, _, _, info = env.step(RIGHT)
+        assert info["x_pos"] > start
