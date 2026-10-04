@@ -107,3 +107,34 @@ def plot_checkpoint_evals(eval_dir: str | Path, output: str | Path | None = None
     fig.savefig(output, dpi=120)
     plt.close(fig)
     return output
+
+
+def plot_eval_comparison(
+    runs: dict[str, str | Path], output: str | Path, max_step: float | None = None
+) -> Path:
+    """Overlay train / held-out progress of several runs (dirs of `mario-rl eval --output` reports)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharex=True, sharey=True)
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    for (label, eval_dir), color in zip(runs.items(), colors, strict=False):
+        reports = sorted(
+            (json.loads(p.read_text()) for p in Path(eval_dir).glob("*.json")), key=lambda r: r["global_step"]
+        )
+        reports = [r for r in reports if max_step is None or r["global_step"] <= max_step * 1.01]
+        steps = np.array([r["global_step"] for r in reports]) / 1e6
+        for ax, split in zip(axes, ("train", "test"), strict=True):
+            ax.plot(steps, [r[split]["progress"] for r in reports], "o-", color=color, label=label)
+    axes[0].set(title="Training levels (22): mean progress", xlabel="env steps (M)", ylim=(0, 1))
+    axes[1].set(title="Held-out levels (7): mean progress", xlabel="env steps (M)")
+    for ax in axes:
+        ax.grid(alpha=0.3)
+    axes[0].legend(fontsize=8)
+    fig.tight_layout()
+    output = Path(output)
+    fig.savefig(output, dpi=120)
+    plt.close(fig)
+    return output

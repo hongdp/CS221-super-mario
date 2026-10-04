@@ -140,6 +140,13 @@ def cmd_plot(ns: argparse.Namespace) -> None:
         print(f"saved {plot_run(ns.run_dir, ns.output, ns.smooth)}")
 
 
+def cmd_compare(ns: argparse.Namespace) -> None:
+    from .plotting import plot_eval_comparison
+
+    runs = dict(item.split("=", 1) for item in ns.runs)
+    print(f"saved {plot_eval_comparison(runs, ns.output, ns.max_step)}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="mario-rl", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -176,6 +183,14 @@ def main(argv: list[str] | None = None) -> None:
         "--evals", action="store_true", help="run_dir holds `mario-rl eval --output` reports of checkpoints"
     )
     p_plot.set_defaults(func=cmd_plot)
+
+    p_cmp = sub.add_parser("compare", help="overlay checkpoint evaluations of several runs")
+    p_cmp.add_argument("output", help="output .png")
+    p_cmp.add_argument(
+        "runs", nargs="+", metavar="LABEL=DIR", help="dirs of `mario-rl eval --output` reports"
+    )
+    p_cmp.add_argument("--max-step", type=float, help="ignore checkpoints after this many env steps")
+    p_cmp.set_defaults(func=cmd_compare)
 
     ns = parser.parse_args(argv)
     ns.func(ns)

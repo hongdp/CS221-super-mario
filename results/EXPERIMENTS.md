@@ -151,12 +151,36 @@ Run 2026-10-04 01:01-02:24.
 **Conclusion**: there is no held-out gain, and training levels are slightly better. The
 memorization is not just open-loop button sequences.
 
-## E9: `tiles2` observation, `tiles2-uniform-3m` (in progress)
+## E9: `tiles2` observation, `tiles2-uniform-3m`
 
-Main-run config with `--obs tiles2` (8px grid built from collision boxes, stompable/hazard classes,
-firebar segments, hammers and a Mario state vector), 3M steps, started 2026-10-04 02:34. Results
-will be added when the run finishes.
+Folder: `tiles2-uniform-3m/`. Main-run config with `--obs tiles2` (8px grid built from collision
+boxes, stompable/hazard classes, firebar segments, hammers and a Mario state vector), 3M steps.
+Run 2026-10-04 02:34-04:28 (~450 env steps/s).
 
-## E10: Pixel baseline (queued)
+| steps | train progress | train completion | held-out progress | held-out completion |
+|---|---|---|---|---|
+| 1M | 34.9% (tiles: 29.7%) | 2.3% (0.5%) | 16.2% (19.5%) | 0.0% |
+| 2M | 45.3% (35.5%) | 8.6% (1.4%) | 23.3% (20.2%) | 0.0% |
+| 3M | **51.2%** (38.5%) | **15.5%** (1.8%) | **24.4%** (20.8%) | 0.0% |
 
-Main-run config with `--obs pixels` for 3M steps, to run after E9.
+(main-run `tiles` numbers at the same step in parentheses; overlay in `comparisons/obs_3m.png`)
+
+Per level at 3M (tiles → tiles2):
+- **Castles improve most**, consistent with firebars now being visible: 1-4 47→74%, 2-4 59→70%,
+  5-4 58→69%, and the held-out castle **6-4 21→41%**.
+- **Athletic (lift) levels improve**: 1-3 30→38%, 4-3 22→35%, 5-3 24→31%.
+- **Completions** at 3M: 4-1 9/10, 3-2 8/10, 1-1 6/10, 2-3 5/10, 6-1 4/10.
+- Held-out: 3-3 18→26%, 5-1 19→22%, 7-1 32→35%, 2-1 34→26%, 4-2 12→9%, 6-2 11→12%.
+
+**Conclusion**: the richer observation makes the training levels much easier to learn. tiles2 at
+3M roughly matches tiles at 6M, with 8x the completion rate at equal steps. It also raises held-out
+progress above anything `tiles` reached in 8M steps (24.4% vs 21.6%), and the held-out curve is
+still rising. The held-out gain is small next to the training gain, and no held-out level is
+completed yet, so most of the generalization gap remains.
+
+## E10: Pixel baseline, `pixels-uniform-3m` (running)
+
+Main-run config with `--obs pixels` (84x84 grayscale, Nature CNN for both actor and critic), 3M
+steps, started 2026-10-04 04:33. Throughput is ~180 env steps/s (tiles2: ~450): the rollout phase
+runs at ~600 steps/s, and each PPO update takes ~8 s. The full run will take ~4.6 h, so the 1M and
+2M checkpoints will be compared first.

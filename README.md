@@ -163,9 +163,15 @@ points are noise.
 |---|---|---|---|---|
 | `tiles` (main run, 3M checkpoint) | 38.5% | 1.8% | 20.8% | 0.0% |
 | `tiles` + `--sticky-prob 0.25` | 40.3% | 4.1% | 17.3% | 0.0% |
-| `tiles2` (8px grid + state vector) | _running_ | | | |
-| `pixels` (84x84 grayscale) | _queued_ | | | |
+| **`tiles2`** (8px grid + state vector) | **51.2%** | **15.5%** | **24.4%** | 0.0% |
+| `pixels` (84x84 grayscale) | _running_ | | | |
 
+![observation comparison](results/comparisons/obs_3m.png)
+
+- **The richer `tiles2` observation helps a lot on training levels.** At 3M steps it roughly matches
+  `tiles` at 6M steps. Castles benefit most because firebars are now visible: the held-out castle
+  6-4 goes from 21% to 41%. Held-out progress (24.4%) beats the 8M-step `tiles` model (21.6%)
+  and is still rising, but no held-out level is completed yet.
 - **Sticky actions do not help held-out levels.** Training levels are slightly better and held-out
   levels are no better. The memorization is not merely open-loop button sequences.
 
