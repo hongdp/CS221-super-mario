@@ -164,7 +164,7 @@ points are noise.
 | `tiles` (main run, 3M checkpoint) | 38.5% | 1.8% | 20.8% | 0.0% |
 | `tiles` + `--sticky-prob 0.25` | 40.3% | 4.1% | 17.3% | 0.0% |
 | **`tiles2`** (8px grid + state vector) | **51.2%** | **15.5%** | **24.4%** | 0.0% |
-| `pixels` (84x84 grayscale) | _running; at 2M: 36.2%_ | _2.3%_ | _15.2%_ | _0.0%_ |
+| `pixels` (84x84 grayscale) | 40.6% | 4.1% | 16.5% | 0.0% |
 
 ![observation comparison](results/comparisons/obs_3m.png)
 
@@ -172,6 +172,10 @@ points are noise.
   `tiles` at 6M steps. Castles benefit most because firebars are now visible: the held-out castle
   6-4 goes from 21% to 41%. Held-out progress (24.4%) beats the 8M-step `tiles` model (21.6%)
   and is still rising, but no held-out level is completed yet.
+- **Pixels transfer worst.** They learn the training levels as fast as `tiles` but stay at 14-17%
+  on held-out levels at every checkpoint, at ~2.5x the compute per step. With only 22 levels, the
+  different palettes and backgrounds of each world give the network more to memorize. The grid
+  does lose information, and the fix is a richer grid, not raw frames.
 - **Sticky actions do not help held-out levels.** Training levels are slightly better and held-out
   levels are no better. The memorization is not merely open-loop button sequences.
 
@@ -192,7 +196,7 @@ src/mario_rl/
   obs.py        helpers so array and dict observations share one code path
   levels.py     levels, goal distances, train / test splits
   env.py        Gymnasium MarioEnv (+ "MarioRL/SuperMarioBros-v0" registration)
-  models.py     actor-critic networks (tiles / pixels)
+  models.py     actor-critic networks (tiles / tiles2 / pixels)
   workers.py    rollout workers with in-process policy inference
   plr.py        uniform / prioritized level sampling
   ppo.py        PPO training loop, checkpoints, evaluation

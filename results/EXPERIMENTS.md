@@ -178,24 +178,38 @@ progress above anything `tiles` reached in 8M steps (24.4% vs 21.6%), and the he
 still rising. The held-out gain is small next to the training gain, and no held-out level is
 completed yet, so most of the generalization gap remains.
 
-## E10: Pixel baseline, `pixels-uniform-3m` (running)
+## E10: Pixel baseline, `pixels-uniform-3m`
 
 Folder: `pixels-uniform-3m/`. Main-run config with `--obs pixels` (84x84 grayscale, Nature CNN for
-both actor and critic), 3M steps, started 2026-10-04 04:30. Throughput is ~185 env steps/s
-(tiles2: ~450): the rollout phase runs at ~600 steps/s, and each PPO update takes ~8 s. The full run
-will take ~4.6 h.
+both actor and critic), 3M steps. Run 2026-10-04 04:30-09:10 (4.6 h, ~185 env steps/s vs ~450 for
+tiles2). The rollout phase runs at ~600 steps/s, and each PPO update takes ~8 s. The weights
+(~13 MB) are not committed.
 
 | steps | train progress | train completion | held-out progress | held-out completion |
 |---|---|---|---|---|
 | 1M | 29.3% (tiles 29.7%, tiles2 34.9%) | 0.9% | 14.2% (tiles 19.5%, tiles2 16.2%) | 0.0% |
 | 2M | 36.2% (tiles 35.5%, tiles2 45.3%) | 2.3% | 15.2% (tiles 20.2%, tiles2 23.3%) | 0.0% |
-| 3M | _pending_ | | | |
+| 3M | 40.6% (tiles 38.5%, tiles2 51.2%) | 4.1% | **16.5%** (tiles 20.8%, tiles2 24.4%) | 0.0% |
 
-Held-out per level at 1M: 2-1 20%, 3-3 13%, 4-2 6%, 5-1 10%, 6-2 16%, 6-4 18%, 7-1 16%.
-At 2M: 2-1 18%, 3-3 25%, 4-2 6%, 5-1 13%, 6-2 14%, 6-4 17%, 7-1 14%. Training-level completions at
-2M: 3-2 4/10, 1-4 1/10.
+Held-out per level at 3M: 2-1 18%, 3-3 24%, 4-2 6%, 5-1 11%, 6-2 23%, 6-4 18%, 7-1 16%.
+Training-level completions at 3M: 3-2 7/10, 1-4 2/10.
 
-Interim reading: pixels learn the training levels at the same rate as `tiles`, but held-out
-progress barely moves (14.2% → 15.2%) while tiles2 climbs to 23.3%. This fits the hypothesis
-that, with only 22 training levels, pixels give the network more level-specific appearance to
-memorize (palettes and backgrounds differ between worlds).
+**Conclusion**: pixels learn the training levels at the same rate as `tiles` but transfer the least.
+Held-out progress stays at 14-17%, below both grid observations at every checkpoint, while
+costing ~2.5x the compute per step. With only 22 training levels, raw pixels give the network
+level-specific appearance to latch onto (palettes and backgrounds differ between worlds).
+**Answer to "should we switch to pixels?"**: no. The grid does lose information, and the fix is a
+richer grid (`tiles2`), not raw frames. Pixels would need heavy augmentation (random crops,
+palette jitter) to compete, if they can at all.
+
+## Summary at 3M steps (10 episodes per level)
+
+| observation | train progress | train completion | held-out progress | env steps/s |
+|---|---|---|---|---|
+| `tiles` | 38.5% | 1.8% | 20.8% | ~650 |
+| `tiles` + sticky actions | 40.3% | 4.1% | 17.3% | ~650 |
+| **`tiles2`** | **51.2%** | **15.5%** | **24.4%** | ~450 |
+| `pixels` | 40.6% | 4.1% | 16.5% | ~185 |
+
+Plot: `comparisons/obs_3m.png`. No variant has completed a held-out level yet. The biggest
+remaining problem is generalization from only 22 training levels.
