@@ -164,7 +164,7 @@ points are noise.
 | `tiles` (main run, 3M checkpoint) | 38.5% | 1.8% | 20.8% | 0.0% |
 | `tiles` + `--sticky-prob 0.25` | 40.3% | 4.1% | 17.3% | 0.0% |
 | **`tiles2`** (8px grid + state vector) | **51.2%** | **15.5%** | **24.4%** | 0.0% |
-| `pixels` (84x84 grayscale) | _running_ | | | |
+| `pixels` (84x84 grayscale) | _running; at 1M: 29.3%_ | _0.9%_ | _14.2%_ | _0.0%_ |
 
 ![observation comparison](results/comparisons/obs_3m.png)
 

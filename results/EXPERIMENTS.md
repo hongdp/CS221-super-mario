@@ -180,7 +180,17 @@ completed yet, so most of the generalization gap remains.
 
 ## E10: Pixel baseline, `pixels-uniform-3m` (running)
 
-Main-run config with `--obs pixels` (84x84 grayscale, Nature CNN for both actor and critic), 3M
-steps, started 2026-10-04 04:33. Throughput is ~180 env steps/s (tiles2: ~450): the rollout phase
-runs at ~600 steps/s, and each PPO update takes ~8 s. The full run will take ~4.6 h, so the 1M and
-2M checkpoints will be compared first.
+Folder: `pixels-uniform-3m/`. Main-run config with `--obs pixels` (84x84 grayscale, Nature CNN for
+both actor and critic), 3M steps, started 2026-10-04 04:30. Throughput is ~185 env steps/s
+(tiles2: ~450): the rollout phase runs at ~600 steps/s, and each PPO update takes ~8 s. The full run
+will take ~4.6 h.
+
+| steps | train progress | train completion | held-out progress | held-out completion |
+|---|---|---|---|---|
+| 1M | 29.3% (tiles 29.7%, tiles2 34.9%) | 0.9% | 14.2% (tiles 19.5%, tiles2 16.2%) | 0.0% |
+| 2M | _pending_ | | | |
+| 3M | _pending_ | | | |
+
+Held-out per level at 1M: 2-1 20%, 3-3 13%, 4-2 6%, 5-1 10%, 6-2 16%, 6-4 18%, 7-1 16%.
+Interim reading: at 1M steps pixels learn the training levels as fast as `tiles` but transfer the
+least. The 1M point is not decisive, though: tiles2 was also low at 1M (16.2%) and jumped to 23.3% at 2M.
