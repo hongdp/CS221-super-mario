@@ -95,12 +95,65 @@ held-out levels have relatives in the training set.
   than nes-py's LaiNES. On small CPU machines, Gymnasium's lock-step `AsyncVectorEnv` loses more
   than half of that to per-step synchronization. So each worker process owns one emulator plus a
   reference to the learner's *shared-memory* policy, collects a whole rollout locally, and sends
-  it back in one message. On a 4-vCPU VM this gives about 850 env steps/s (3400 frames/s)
-  end-to-end, including the PPO updates.
+  it back in one message. On a 4-vCPU VM without a GPU this gives about 650 env steps/s
+  (2600 emulated frames/s) end-to-end with the decoupled actor/critic, PPO updates included.
 
 ## Results
 
-_Training in progress; this section is filled in from `results/` once the run finishes._
+All numbers come from `results/tiles-uniform-8m/` and can be reproduced with the commands in
+[`results/README.md`](results/README.md). The run trained for 8M env steps (32M frames) on the
+22 training levels with uniform level sampling and the default configuration. It took about 3.4 h on a
+4-vCPU VM with no GPU. Every 1M-step checkpoint was then re-evaluated with 10 stochastic episodes per
+level. "Progress" is the fraction of the level reached (1.0 = flag), and "completion" is the fraction
+of episodes that reach the flag or the axe.
+
+![generalization](results/tiles-uniform-8m/generalization.png)
+
+| steps | train progress | train completion | held-out progress | held-out completion |
+|---|---|---|---|---|
+| untrained | 15.5% | 0.0% | 10.7% | 0.0% |
+| 1M | 29.7% | 0.5% | 19.5% | 0.0% |
+| 2M | 35.5% | 1.4% | 20.2% | 0.0% |
+| 4M | 45.7% | 6.8% | 19.7% | 0.0% |
+| 6M | 55.4% | 18.2% | 20.9% | 0.0% |
+| 8M | **61.7%** | **23.2%** | **21.6%** | 0.0% |
+
+What the results show:
+
+1. **The training levels are learned steadily.** At 8M steps the agent completes 4-1 in 10 of 10
+   episodes, 3-2 in 9, 1-1 and 6-1 in 8, and 2-3 in 6, all while training on all 22 levels at once.
+   For comparison, the 2017 DQN trained only on 1-1 and finished it in about 6% of its training games.
+2. **Generalization to unseen levels is weak.** On held-out levels the agent reaches twice the progress
+   of an untrained policy (21.6% vs 10.7%), but almost all of that gain appears in the first 1M steps
+   and then flattens. No held-out level was completed. The best held-out levels are 7-1 (41%),
+   2-1 (25%) and 6-4 (24%).
+3. **Interpretation.** Generic skills such as running right, jumping over gaps and jumping on the first
+   enemies transfer early. After that, the policy mostly memorizes level-specific action sequences.
+   With only 22 distinct training levels this is the expected regime: on Procgen, PPO needs hundreds
+   of training levels before test performance approaches training performance.
+
+| | |
+|---|---|
+| ![4-1](results/tiles-uniform-8m/play_4-1_train.gif) | ![7-1](results/tiles-uniform-8m/play_7-1_heldout.gif) |
+| 4-1 (training level), completed | 7-1 (held-out), typical 40% run |
+
+**A bug found along the way.** The first version shared the CNN trunk between actor and critic. In a
+1M-step run it stayed at about 17% progress on both splits, and the policy collapsed to a
+state-independent "right+A / right+B" distribution. Measured on a real batch, the value-loss gradient
+norm was about 145 versus about 1.1 for the policy loss, so the shared features served the value
+function. Decoupling the two networks and normalizing rewards (now the defaults) raised
+training-level progress at 1M steps from 17.7% to 28.9%, both measured by the in-training evaluation.
+
+### Directions to improve generalization
+
+All of these build on the current tooling:
+
+- `--sticky-prob 0.25`: sticky actions break open-loop memorization (comparison below).
+- `--level-sampler plr`: Prioritized Level Replay.
+- More randomness inside each level, such as starting episodes from mid-level states or
+  augmenting the tile grid (random translations, tile dropout).
+- More compute. Mario is sample-hungry, and this run gave each training level only about 360k steps.
+
 
 ## Project layout
 

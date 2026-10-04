@@ -131,9 +131,12 @@ def _save_video(frames, path: Path, fps: int) -> None:
 
 
 def cmd_plot(ns: argparse.Namespace) -> None:
-    from .plotting import plot_run  # needs matplotlib: pip install "mario-rl[plot]"
+    from .plotting import plot_checkpoint_evals, plot_run  # needs matplotlib ("mario-rl[plot]")
 
-    print(f"saved {plot_run(ns.run_dir, ns.output, ns.smooth)}")
+    if ns.evals:
+        print(f"saved {plot_checkpoint_evals(ns.run_dir, ns.output)}")
+    else:
+        print(f"saved {plot_run(ns.run_dir, ns.output, ns.smooth)}")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -168,6 +171,9 @@ def main(argv: list[str] | None = None) -> None:
     p_plot.add_argument("run_dir")
     p_plot.add_argument("--output")
     p_plot.add_argument("--smooth", type=int, default=20)
+    p_plot.add_argument(
+        "--evals", action="store_true", help="run_dir holds `mario-rl eval --output` reports of checkpoints"
+    )
     p_plot.set_defaults(func=cmd_plot)
 
     ns = parser.parse_args(argv)

@@ -70,3 +70,40 @@ def plot_run(run_dir: str | Path, output: str | Path | None = None, smooth: int 
     fig.savefig(output, dpi=120)
     plt.close(fig)
     return output
+
+
+def plot_checkpoint_evals(eval_dir: str | Path, output: str | Path | None = None) -> Path:
+    """Train vs held-out curves from ``mario-rl eval --output`` reports of several checkpoints."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    eval_dir = Path(eval_dir)
+    reports = sorted(
+        (json.loads(p.read_text()) for p in eval_dir.glob("*.json")), key=lambda r: r["global_step"]
+    )
+    trained = [r for r in reports if r["global_step"] > 0]
+    baseline = next((r for r in reports if r["global_step"] == 0), None)
+    steps = np.array([r["global_step"] for r in trained]) / 1e6
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharex=True)
+    for ax, metric, title in [
+        (axes[0], "progress", "Mean level progress"),
+        (axes[1], "completion", "Level completion rate"),
+    ]:
+        for split, color, label in [("train", "tab:blue", "training levels (22)"),
+                                    ("test", "tab:orange", "held-out levels (7)")]:  # fmt: skip
+            if split not in trained[0]:
+                continue
+            ax.plot(steps, [r[split][metric] for r in trained], "o-", color=color, label=label)
+            if baseline is not None and split in baseline:
+                ax.axhline(baseline[split][metric], color=color, ls=":", lw=1)
+        ax.set(title=title, xlabel="env steps (M)", ylim=(0, 1))
+        ax.grid(alpha=0.3)
+    axes[0].legend(title="dotted: untrained policy", fontsize=8, title_fontsize=8)
+    fig.tight_layout()
+    output = Path(output) if output else eval_dir / "generalization.png"
+    fig.savefig(output, dpi=120)
+    plt.close(fig)
+    return output
