@@ -188,9 +188,14 @@ will take ~4.6 h.
 | steps | train progress | train completion | held-out progress | held-out completion |
 |---|---|---|---|---|
 | 1M | 29.3% (tiles 29.7%, tiles2 34.9%) | 0.9% | 14.2% (tiles 19.5%, tiles2 16.2%) | 0.0% |
-| 2M | _pending_ | | | |
+| 2M | 36.2% (tiles 35.5%, tiles2 45.3%) | 2.3% | 15.2% (tiles 20.2%, tiles2 23.3%) | 0.0% |
 | 3M | _pending_ | | | |
 
 Held-out per level at 1M: 2-1 20%, 3-3 13%, 4-2 6%, 5-1 10%, 6-2 16%, 6-4 18%, 7-1 16%.
-Interim reading: at 1M steps pixels learn the training levels as fast as `tiles` but transfer the
-least. The 1M point is not decisive, though: tiles2 was also low at 1M (16.2%) and jumped to 23.3% at 2M.
+At 2M: 2-1 18%, 3-3 25%, 4-2 6%, 5-1 13%, 6-2 14%, 6-4 17%, 7-1 14%. Training-level completions at
+2M: 3-2 4/10, 1-4 1/10.
+
+Interim reading: pixels learn the training levels at the same rate as `tiles`, but held-out
+progress barely moves (14.2% → 15.2%) while tiles2 climbs to 23.3%. This fits the hypothesis
+that, with only 22 training levels, pixels give the network more level-specific appearance to
+memorize (palettes and backgrounds differ between worlds).
