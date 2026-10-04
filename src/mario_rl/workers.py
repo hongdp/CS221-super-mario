@@ -19,11 +19,12 @@ import torch.multiprocessing as mp
 
 from .env import EnvConfig, MarioEnv
 from .models import ActorCritic
+from .obs import allocate, store, to_torch
 
 
 @dataclass
 class Rollout:
-    obs: np.ndarray  # (T, *obs_shape) uint8
+    obs: Any  # (T, *obs_shape) array, or a dict of such arrays
     actions: np.ndarray  # (T,) int64
     logprobs: np.ndarray  # (T,) float32
     values: np.ndarray  # (T,) float32
@@ -38,7 +39,7 @@ class Rollout:
 def _run_episode(env: MarioEnv, model: ActorCritic, level, greedy: bool, gen) -> dict:
     obs, _ = env.reset(options={"level": level})
     while True:
-        action, _, _ = model.act(torch.from_numpy(obs)[None], greedy=greedy, generator=gen)
+        action, _, _ = model.act(to_torch(obs, batch=True), greedy=greedy, generator=gen)
         obs, _, terminated, truncated, info = env.step(int(action))
         if terminated or truncated:
             return {"level": info["level"], **info["episode"]}
@@ -57,7 +58,7 @@ def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int):
                 num_steps, weights = payload
                 if weights is not None:
                     env.set_level_weights(weights)
-                buf_obs = np.empty((num_steps, *obs.shape), dtype=np.uint8)
+                buf_obs = allocate(obs, num_steps)
                 actions = np.empty(num_steps, dtype=np.int64)
                 logprobs = np.empty(num_steps, dtype=np.float32)
                 values = np.empty(num_steps, dtype=np.float32)
@@ -69,13 +70,13 @@ def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int):
                 with torch.inference_mode():
                     for t in range(num_steps):
                         level_ids[t] = env.levels.index(env.level)
-                        buf_obs[t] = obs
-                        action, logprob, value = model.act(torch.from_numpy(obs)[None], generator=gen)
+                        store(buf_obs, t, obs)
+                        action, logprob, value = model.act(to_torch(obs, batch=True), generator=gen)
                         obs, reward, terminated, truncated, info = env.step(int(action))
                         if truncated and not terminated:
                             # Time-limit / stuck truncation is not a real terminal
                             # state: bootstrap from the value of the final observation.
-                            bootstrap[t] = float(model.get_value(torch.from_numpy(obs)[None]))
+                            bootstrap[t] = float(model.get_value(to_torch(obs, batch=True)))
                         actions[t] = int(action)
                         logprobs[t] = float(logprob)
                         values[t] = float(value)
@@ -84,7 +85,7 @@ def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int):
                         if dones[t]:
                             episodes.append({"level": info["level"], **info["episode"]})
                             obs, _ = env.reset()
-                    next_value = float(model.get_value(torch.from_numpy(obs)[None]))
+                    next_value = float(model.get_value(to_torch(obs, batch=True)))
                 conn.send(
                     (
                         "ok",

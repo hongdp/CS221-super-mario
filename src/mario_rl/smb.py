@@ -43,6 +43,17 @@ ENEMY_X = 0x0087
 ENEMY_Y = 0x00CF
 ENEMY_Y_VIEWPORT = 0x00B6
 BLOCK_BUFFER = 0x0500  # 2 pages x 13 rows x 16 columns of metatiles
+PLAYER_X_SPEED = 0x0057  # signed, 1/16 px per frame
+PLAYER_Y_SPEED = 0x009F  # signed px per frame, negative = rising
+SWIMMING = 0x0704  # non-zero in water levels
+STAR_TIMER = 0x079F
+MISC_STATE = 0x002A  # 9 misc object slots (hammers, jumping coins)
+# Collision boxes computed by the game each frame, in screen pixels
+# (x0, y0, x1, y1) including the 32px status bar offset.
+PLAYER_BOX = 0x04AC
+ENEMY_BOX = 0x04B0  # 4 bytes per enemy slot
+MISC_BOX = 0x04D0  # 4 bytes per misc slot
+OAM = 0x0200  # sprite shadow buffer: 64 x (y, tile, attributes, x)
 
 STATE_FLAGPOLE = 0x04
 STATE_DEAD = 0x06

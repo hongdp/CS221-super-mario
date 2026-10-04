@@ -121,3 +121,16 @@ def test_sticky_actions():
         for _ in range(10):
             _, _, _, _, info = env.step(RIGHT)
         assert info["x_pos"] > start
+
+
+def test_tiles2_dict_observation():
+    with closing(MarioEnv(levels=("1-1", "2-2"), obs="tiles2", noop_max=0)) as env:
+        check_env(env, skip_render_check=True)
+        obs, _ = env.reset(seed=0, options={"level": "1-1"})
+        grid, vec = obs["grid"][-1], obs["vec"]
+        rows, cols = np.nonzero(grid == 5)  # MARIO2
+        assert len(rows) == 4  # small Mario: 2x2 cells of 8px
+        assert (grid[rows.max() + 1, cols] == 1).all()  # standing on solid ground
+        assert vec[2] == 1.0  # on the ground
+        obs, _ = env.reset(options={"level": "2-2"})
+        assert obs["vec"][8] == 1.0  # swimming level

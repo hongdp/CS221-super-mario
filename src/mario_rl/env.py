@@ -11,7 +11,18 @@ import numpy as np
 from . import smb
 from .emulator import DOWN, LEFT, RIGHT, UP, A, B
 from .levels import TRAIN_LEVELS, Level, parse_levels
-from .tiles import COLS, NUM_TILE_TYPES, ROWS, tile_grid
+from .tiles import (
+    COLS,
+    COLS2,
+    NUM_FEATURES,
+    NUM_TILE_TYPES,
+    NUM_TILE_TYPES2,
+    ROWS,
+    ROWS2,
+    mario_features,
+    tile_grid,
+    tile_grid_v2,
+)
 
 ACTION_SETS: dict[str, tuple[int, ...]] = {
     "right_only": (0, RIGHT, RIGHT | A, RIGHT | B, RIGHT | A | B),
@@ -30,7 +41,9 @@ PIXEL_SIZE = 84
 @dataclass
 class EnvConfig:
     levels: tuple[str, ...] = tuple(str(lv) for lv in TRAIN_LEVELS)
-    obs: Literal["tiles", "pixels"] = "tiles"
+    # tiles: 13x16 grid, 16px cells (2017 representation); tiles2: 26x32 grid of 8px cells built
+    # from collision boxes with stompable/hazard classes, plus a Mario state vector; pixels: 84x84.
+    obs: Literal["tiles", "tiles2", "pixels"] = "tiles"
     actions: str = "simple"
     frame_skip: int = 4
     frame_stack: int = 4
@@ -52,10 +65,15 @@ class EnvConfig:
         return asdict(self)
 
 
-def observation_spec(config: EnvConfig) -> tuple[str, tuple[int, ...], int]:
-    """(obs type, obs shape, number of actions) without starting an emulator."""
+def observation_spec(config: EnvConfig) -> tuple[str, Any, int]:
+    """(obs type, obs shape, number of actions) without starting an emulator.
+
+    The shape is a tuple, or a dict of tuples for dict observations (``tiles2``).
+    """
     if config.obs == "tiles":
         shape = (config.frame_stack, ROWS, COLS)
+    elif config.obs == "tiles2":
+        shape = {"grid": (config.frame_stack, ROWS2, COLS2), "vec": (NUM_FEATURES,)}
     elif config.obs == "pixels":
         shape = (config.frame_stack, PIXEL_SIZE, PIXEL_SIZE)
     else:
@@ -68,9 +86,10 @@ def observation_spec(config: EnvConfig) -> tuple[str, tuple[int, ...], int]:
 class MarioEnv(gym.Env):
     """One emulator that plays a (weighted) random level from ``levels`` each episode.
 
-    Observations are a stack of the last ``frame_stack`` frames, either as the
-    symbolic tile grid (``(stack, 13, 16)`` with values in ``[0, 5)``) or as
-    grayscale ``84x84`` pixels.
+    Observations stack the last ``frame_stack`` frames: the symbolic tile grid
+    (``tiles``: ``(stack, 13, 16)``), the 8px grid plus Mario's state vector
+    (``tiles2``: ``{"grid": (stack, 26, 32), "vec": (10,)}``) or grayscale
+    ``84x84`` pixels.
     """
 
     metadata: ClassVar[dict] = {"render_modes": ["rgb_array"], "render_fps": 60}
@@ -87,9 +106,19 @@ class MarioEnv(gym.Env):
         obs_type, shape, n_actions = observation_spec(config)
         self._buttons = ACTION_SETS[config.actions]
         self.action_space = gym.spaces.Discrete(n_actions)
-        high = NUM_TILE_TYPES - 1 if obs_type == "tiles" else 255
-        self.observation_space = gym.spaces.Box(0, high, shape, np.uint8)
-        self._frames = np.zeros(shape, dtype=np.uint8)
+        if obs_type == "tiles2":
+            self.observation_space = gym.spaces.Dict(
+                {
+                    "grid": gym.spaces.Box(0, NUM_TILE_TYPES2 - 1, shape["grid"], np.uint8),
+                    "vec": gym.spaces.Box(-10.0, 10.0, shape["vec"], np.float32),
+                }
+            )
+            frame_shape = shape["grid"]
+        else:
+            high = NUM_TILE_TYPES - 1 if obs_type == "tiles" else 255
+            self.observation_space = gym.spaces.Box(0, high, shape, np.uint8)
+            frame_shape = shape
+        self._frames = np.zeros(frame_shape, dtype=np.uint8)
         self._weights = self._normalise(config.level_weights)
         self._game = smb.SMBGame(config.rom_path)
         self.level = self.levels[0]
@@ -123,9 +152,8 @@ class MarioEnv(gym.Env):
             self._game.frame(0)
         ram = self._game.ram()
         self._reset_episode_state(ram)
-        frame = self._observe(ram)
-        self._frames[:] = frame
-        return self._frames.copy(), self._info(ram)
+        self._frames[:] = self._observe(ram)
+        return self._obs(ram), self._info(ram)
 
     def step(self, action: int):
         cfg = self.config
@@ -193,7 +221,7 @@ class MarioEnv(gym.Env):
                 "flag_get": self._flag,
                 "level_id": self.levels.index(self.level) if self.level in self.levels else -1,
             }
-        return self._frames.copy(), float(reward), terminated, truncated, info
+        return self._obs(ram), float(reward), terminated, truncated, info
 
     def render(self):
         return self._game.emu.screen.copy()
@@ -215,9 +243,17 @@ class MarioEnv(gym.Env):
         self._time_last = smb.game_time(ram) if ram is not None else 0
 
     def _observe(self, ram: np.ndarray) -> np.ndarray:
+        """The newest frame of the stack."""
         if self.config.obs == "tiles":
             return tile_grid(ram)
+        if self.config.obs == "tiles2":
+            return tile_grid_v2(ram)
         return _downsample(self._game.emu.screen)
+
+    def _obs(self, ram: np.ndarray):
+        if self.config.obs == "tiles2":
+            return {"grid": self._frames.copy(), "vec": mario_features(ram)}
+        return self._frames.copy()
 
     def _info(self, ram: np.ndarray) -> dict[str, Any]:
         x = smb.x_pos(ram)

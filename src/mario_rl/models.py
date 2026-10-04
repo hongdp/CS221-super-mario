@@ -1,4 +1,4 @@
-"""Actor-critic networks for tile-grid and pixel observations."""
+"""Actor-critic networks for tile-grid (v1/v2) and pixel observations."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import torch
 from torch import nn
 from torch.distributions import Categorical
 
-from .tiles import NUM_TILE_TYPES
+from .tiles import NUM_TILE_TYPES, NUM_TILE_TYPES2
 
 
 def _init(layer: nn.Module, gain: float = np.sqrt(2)) -> nn.Module:
@@ -72,9 +72,44 @@ class PixelEncoder(nn.Module):
         return self.fc(self.net(obs.float() / 255.0))
 
 
-def _encoder(obs_type: str, obs_shape: tuple[int, ...]) -> nn.Module:
+class TileEncoderV2(nn.Module):
+    """8px grid (one-hot, stride-2 CNN) fused with Mario's state vector.
+
+    Input: {"grid": (B, stack, 26, 32) uint8, "vec": (B, F) float32}. About 2.7M MACs/sample.
+    """
+
+    def __init__(self, obs_shape: dict, hidden: int = 256):
+        super().__init__()
+        stack, rows, cols = obs_shape["grid"]
+        n_vec = obs_shape["vec"][0]
+        self.in_channels = stack * NUM_TILE_TYPES2
+        self.net = nn.Sequential(
+            _init(nn.Conv2d(self.in_channels, 16, 3, stride=2, padding=1)),
+            nn.ReLU(),
+            _init(nn.Conv2d(16, 32, 3, padding=1)),
+            nn.ReLU(),
+            _init(nn.Conv2d(32, 32, 3, stride=2, padding=1)),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        with torch.no_grad():
+            n_flat = self.net(torch.zeros(1, self.in_channels, rows, cols)).shape[1]
+        self.fc = nn.Sequential(_init(nn.Linear(n_flat + n_vec, hidden)), nn.ReLU())
+        self.out_dim = hidden
+
+    def forward(self, obs: dict) -> torch.Tensor:
+        grid = obs["grid"]
+        b, stack, rows, cols = grid.shape
+        onehot = nn.functional.one_hot(grid.long(), NUM_TILE_TYPES2)
+        x = onehot.permute(0, 1, 4, 2, 3).reshape(b, stack * NUM_TILE_TYPES2, rows, cols)
+        return self.fc(torch.cat([self.net(x.float()), obs["vec"].float()], dim=-1))
+
+
+def _encoder(obs_type: str, obs_shape) -> nn.Module:
     if obs_type == "tiles":
         return TileEncoder(obs_shape)
+    if obs_type == "tiles2":
+        return TileEncoderV2(obs_shape)
     if obs_type == "pixels":
         return PixelEncoder(obs_shape)
     raise ValueError(f"unknown observation type {obs_type!r}")
@@ -90,10 +125,12 @@ class ActorCritic(nn.Module):
     Generalization in RL"). ``shared=True`` restores a single trunk.
     """
 
-    def __init__(self, obs_type: str, obs_shape: tuple[int, ...], n_actions: int, shared: bool = False):
+    def __init__(self, obs_type: str, obs_shape, n_actions: int, shared: bool = False):
         super().__init__()
         self.obs_type = obs_type
-        self.obs_shape = tuple(obs_shape)
+        self.obs_shape = (
+            {k: tuple(v) for k, v in obs_shape.items()} if isinstance(obs_shape, dict) else tuple(obs_shape)
+        )
         self.n_actions = n_actions
         self.shared = shared
         self.actor_encoder = _encoder(obs_type, self.obs_shape)

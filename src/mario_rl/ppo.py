@@ -17,6 +17,7 @@ from .env import EnvConfig, observation_spec
 from .evaluate import format_table, summarize
 from .levels import parse_levels
 from .models import ActorCritic
+from .obs import batch_size, concat, take, to_torch
 from .plr import LevelSampler
 from .workers import Rollout, WorkerPool
 
@@ -181,9 +182,7 @@ def save_checkpoint(path: Path, model, optimizer, sampler, normalizer, cfg, env_
 def load_policy(path: str | Path) -> tuple[ActorCritic, dict]:
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
     spec = ckpt["model_spec"]
-    model = ActorCritic(
-        spec["obs_type"], tuple(spec["obs_shape"]), spec["n_actions"], spec.get("shared", False)
-    )
+    model = ActorCritic(spec["obs_type"], spec["obs_shape"], spec["n_actions"], spec.get("shared", False))
     model.load_state_dict(ckpt["model"])
     model.eval()
     return model, ckpt
@@ -254,7 +253,7 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
                 advantages.append(adv)
                 for level_id, score in plr_scores(adv, ro.dones, ro.level_ids):
                     sampler.update(level_id, score)
-            b_obs = torch.from_numpy(np.concatenate([ro.obs for ro in rollouts]))
+            b_obs = to_torch(concat([ro.obs for ro in rollouts]))
             b_actions = torch.from_numpy(np.concatenate([ro.actions for ro in rollouts]))
             b_logprobs = torch.from_numpy(np.concatenate([ro.logprobs for ro in rollouts]))
             b_values = torch.from_numpy(np.concatenate([ro.values for ro in rollouts]))
@@ -345,13 +344,13 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
 
 
 def _ppo_update(model, optimizer, cfg, b_obs, b_actions, b_logprobs, b_returns, b_adv, minibatch_size):
-    n = len(b_obs)
+    n = batch_size(b_obs)
     clipfracs, approx_kls, pg_losses, v_losses, entropies = [], [], [], [], []
     for _ in range(cfg.update_epochs):
         perm = torch.randperm(n)
         for start in range(0, n, minibatch_size):
             idx = perm[start : start + minibatch_size]
-            new_logprob, entropy, new_value = model.evaluate_actions(b_obs[idx], b_actions[idx])
+            new_logprob, entropy, new_value = model.evaluate_actions(take(b_obs, idx), b_actions[idx])
             logratio = new_logprob - b_logprobs[idx]
             ratio = logratio.exp()
             with torch.no_grad():

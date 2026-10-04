@@ -72,11 +72,17 @@ def test_level_sampler():
     np.testing.assert_allclose(restored.weights(), w)
 
 
-@pytest.mark.parametrize(("obs_type", "shape"), [("tiles", (4, 13, 16)), ("pixels", (4, 84, 84))])
+@pytest.mark.parametrize(
+    ("obs_type", "shape"),
+    [("tiles", (4, 13, 16)), ("pixels", (4, 84, 84)), ("tiles2", {"grid": (4, 26, 32), "vec": (10,)})],
+)
 def test_actor_critic_shapes_and_logprobs(obs_type, shape):
     model = ActorCritic(obs_type, shape, 7)
-    high = 5 if obs_type == "tiles" else 256
-    obs = torch.randint(0, high, (3, *shape), dtype=torch.uint8)
+    if obs_type == "tiles2":
+        obs = {"grid": torch.randint(0, 6, (3, *shape["grid"]), dtype=torch.uint8), "vec": torch.randn(3, 10)}
+    else:
+        high = 5 if obs_type == "tiles" else 256
+        obs = torch.randint(0, high, (3, *shape), dtype=torch.uint8)
     logits, value = model(obs)
     assert logits.shape == (3, 7) and value.shape == (3,)
     action, logprob, _ = model.act(obs, generator=torch.Generator().manual_seed(0))
@@ -163,3 +169,16 @@ def test_end_to_end_train_eval_play(tmp_path):
     _, ckpt = load_policy(run_dir / "latest.pt")
     assert ckpt["global_step"] == 192
     assert ckpt["env_config"]["max_episode_steps"] == 40
+
+
+@pytest.mark.slow
+def test_end_to_end_dict_observations(tmp_path):
+    cfg = PPOConfig(
+        run_name="tiny2", out_dir=str(tmp_path), total_steps=64, num_envs=2, num_steps=32,
+        num_minibatches=2, update_epochs=1, eval_interval=64, eval_levels="2-1",
+        eval_on_train=False, eval_episodes=1, save_interval=64, torch_threads=1,
+    )  # fmt: skip
+    run_dir = train(cfg, EnvConfig(levels=("1-1",), obs="tiles2", max_episode_steps=40))
+    model, _ = load_policy(run_dir / "latest.pt")
+    assert model.obs_type == "tiles2" and model.obs_shape["vec"] == (10,)
+    cli_main(["play", str(run_dir / "latest.pt"), "--level", "1-2"])

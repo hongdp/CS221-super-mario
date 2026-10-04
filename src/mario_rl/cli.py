@@ -14,6 +14,7 @@ import numpy as np
 from .env import EnvConfig, MarioEnv
 from .evaluate import format_table, summarize
 from .levels import Level, parse_levels
+from .obs import to_torch
 from .ppo import PPOConfig, load_policy, train
 
 
@@ -100,7 +101,7 @@ def cmd_play(ns: argparse.Namespace) -> None:
     total = 0.0
     with torch.inference_mode():
         while True:
-            action, _, _ = model.act(torch.from_numpy(obs)[None], greedy=ns.greedy, generator=gen)
+            action, _, _ = model.act(to_torch(obs, batch=True), greedy=ns.greedy, generator=gen)
             obs, reward, terminated, truncated, info = env.step(int(action))
             total += reward
             frames.append(env.render())
