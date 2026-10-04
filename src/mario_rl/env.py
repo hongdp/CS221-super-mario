@@ -43,7 +43,7 @@ class EnvConfig:
     levels: tuple[str, ...] = tuple(str(lv) for lv in TRAIN_LEVELS)
     # tiles: 13x16 grid, 16px cells (2017 representation); tiles2: 26x32 grid of 8px cells built
     # from collision boxes with stompable/hazard classes, plus a Mario state vector; pixels: 84x84.
-    obs: Literal["tiles", "tiles2", "pixels"] = "tiles"
+    obs: Literal["tiles", "tiles2", "pixels"] = "tiles2"
     actions: str = "simple"
     frame_skip: int = 4
     frame_stack: int = 4

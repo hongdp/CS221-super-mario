@@ -4,7 +4,7 @@
 
 | folder | experiment |
 |---|---|
-| `tiles-uniform-8m/` | E6: main run, 8M steps, default config |
+| `tiles-uniform-8m/` | E6: main run, `--obs tiles`, 8M steps |
 | `tiles-sticky-3m/` | E8: main config + sticky actions (p=0.25), 3M steps |
 | `tiles2-uniform-3m/` | E9: `--obs tiles2`, 3M steps (weights in `model.pt`) |
 | `pixels-uniform-3m/` | E10: `--obs pixels`, 3M steps (weights not committed) |
@@ -14,10 +14,10 @@
 
 ## `tiles-uniform-8m`
 
-The default configuration, trained for 8M env steps on the 22 training levels.
+`--obs tiles` (the default at the time), trained for 8M env steps on the 22 training levels.
 
 ```bash
-mario-rl train --run-name tiles-uniform-8m --total-steps 8000000 --num-envs 8 --num-steps 256 \
+mario-rl train --run-name tiles-uniform-8m --obs tiles --total-steps 8000000 --num-envs 8 --num-steps 256 \
   --eval-interval 500000 --eval-episodes 2 --save-interval 1000000 --seed 1
 # re-evaluate every checkpoint with 10 episodes per level
 for c in runs/tiles-uniform-8m/ckpt_*.pt runs/tiles-uniform-8m/latest.pt; do
@@ -41,7 +41,7 @@ mario-rl play runs/tiles-uniform-8m/latest.pt --level 4-1 --seed 0 --output play
 ## `tiles-sticky-3m`
 
 ```bash
-mario-rl train --run-name tiles-sticky-3m --total-steps 3000000 --num-envs 8 --num-steps 256 \
+mario-rl train --run-name tiles-sticky-3m --obs tiles --total-steps 3000000 --num-envs 8 --num-steps 256 \
   --sticky-prob 0.25 --eval-interval 500000 --eval-episodes 2 --save-interval 1000000 --seed 1
 ```
 

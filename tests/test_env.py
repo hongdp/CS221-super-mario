@@ -4,6 +4,7 @@ process, so every test closes its environment before the next one starts."""
 from contextlib import closing
 
 import numpy as np
+import pytest
 from gymnasium.utils.env_checker import check_env
 
 from mario_rl import smb
@@ -15,7 +16,7 @@ RIGHT = 1  # index of "right" in the simple action set
 
 
 def test_gymnasium_api_compliance():
-    with closing(MarioEnv(levels=("1-1", "1-2"))) as env:
+    with closing(MarioEnv(levels=("1-1", "1-2"), obs="tiles")) as env:
         check_env(env, skip_render_check=True)
 
 
@@ -29,8 +30,13 @@ def test_every_level_can_be_selected():
             assert info["time"] > 0
 
 
+def test_default_observation_is_tiles2():
+    with closing(MarioEnv(levels=("1-1",))) as env:
+        assert set(env.observation_space.spaces) == {"grid", "vec"}
+
+
 def test_initial_tile_observation_shows_mario_on_the_ground():
-    with closing(MarioEnv(levels=("1-1",), noop_max=0)) as env:
+    with closing(MarioEnv(levels=("1-1",), noop_max=0, obs="tiles")) as env:
         obs, _ = env.reset(seed=0)
         assert obs.shape == (4, 13, 16)
         frame = obs[-1]
@@ -39,16 +45,20 @@ def test_initial_tile_observation_shows_mario_on_the_ground():
         assert frame[rows[0] + 1, cols[0]] == SOLID
 
 
-def test_same_seed_same_trajectory():
+@pytest.mark.parametrize("obs_type", ["tiles", "tiles2"])
+def test_same_seed_same_trajectory(obs_type):
     actions = np.random.default_rng(0).integers(0, len(ACTION_SETS["simple"]), size=60)
 
+    def flat(obs):
+        return np.concatenate([np.ravel(v) for v in obs.values()]) if isinstance(obs, dict) else np.ravel(obs)
+
     def rollout():
-        with closing(MarioEnv(levels=("1-1", "4-1"))) as env:
+        with closing(MarioEnv(levels=("1-1", "4-1"), obs=obs_type)) as env:
             obs, _ = env.reset(seed=42)
-            out = [obs]
+            out = [flat(obs)]
             for a in actions:
                 obs, *_ = env.step(int(a))
-                out.append(obs)
+                out.append(flat(obs))
             return np.stack(out)
 
     np.testing.assert_array_equal(rollout(), rollout())

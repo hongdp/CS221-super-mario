@@ -144,7 +144,7 @@ def test_end_to_end_train_eval_play(tmp_path):
         level_sampler="plr",
         torch_threads=1,
     )
-    env_cfg = EnvConfig(levels=("1-1", "1-2"), max_episode_steps=40)
+    env_cfg = EnvConfig(levels=("1-1", "1-2"), obs="tiles", max_episode_steps=40)
     run_dir = train(cfg, env_cfg)
 
     metrics = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text().splitlines()]

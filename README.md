@@ -9,7 +9,7 @@ level 1-1. The 2026 rewrite ports it to a modern stack and changes the goal:
   dependency on the unmaintained `gym` / `nes-py` packages; NumPy 2 compatible.
 - **Observation**: the 13x16 symbolic *tile grid* idea from 2017, now decoded straight from RAM.
   It is the same in overworld, underground, water and castle levels, which helps generalization.
-  `tiles2` is a richer 8px version built from the game's collision boxes, with stompable vs
+  `tiles2` (the default) is a richer 8px version built from the game's collision boxes, with stompable vs
   hazard enemies, firebars, hammers and exact lift sizes, plus Mario's velocity and state.
   An 84x84 grayscale pixel mode is available for comparison.
 - **Agent**: PyTorch PPO with GAE, correct bootstrapping on time-limit truncation, and optional
@@ -26,7 +26,8 @@ The original code and results are kept in [`legacy/`](legacy/README.md).
 uv venv -p 3.11 && source .venv/bin/activate
 uv pip install -e ".[dev,tensorboard,plot]"   # pulls CPU-only torch wheels (see pyproject)
 
-# train on the 22 training levels, evaluating on the 7 held-out levels every 500k steps
+# train on the 22 training levels (default observation: tiles2), evaluating on the 7 held-out
+# levels every 500k steps; add `--obs tiles` / `--obs pixels` for the other observations
 mario-rl train --total-steps 10000000 --num-envs 8 --num-steps 256 --eval-interval 500000
 
 mario-rl eval runs/<run>/latest.pt --levels test train --episodes 5   # report per level
@@ -44,8 +45,8 @@ Using the environment directly:
 import gymnasium as gym
 import mario_rl  # registers the env
 
-env = gym.make("MarioRL/SuperMarioBros-v0", levels=("1-1", "2-1"), obs="tiles")
-obs, info = env.reset(seed=0)                   # obs: (4, 13, 16) uint8 tile classes
+env = gym.make("MarioRL/SuperMarioBros-v0", levels=("1-1", "2-1"))  # obs="tiles2" by default
+obs, info = env.reset(seed=0)                   # obs["grid"]: (4, 26, 32) uint8, obs["vec"]: (10,)
 obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 env.reset(options={"level": "8-1"})             # force any level
 ```
@@ -111,7 +112,8 @@ held-out levels have relatives in the training set.
 All numbers come from `results/tiles-uniform-8m/` and can be reproduced with the commands in
 [`results/README.md`](results/README.md). Every experiment, including the diagnostics behind the
 design decisions, is logged in [`results/EXPERIMENTS.md`](results/EXPERIMENTS.md). The run trained for 8M env steps (32M frames) on the
-22 training levels with uniform level sampling and the default configuration. It took about 3.4 h on a
+22 training levels with uniform level sampling and `--obs tiles` (the default at the time; the
+default is now `tiles2`, see the comparison below). It took about 3.4 h on a
 4-vCPU VM with no GPU. Every 1M-step checkpoint was then re-evaluated with 10 stochastic episodes per
 level. "Progress" is the fraction of the level reached (1.0 = flag), and "completion" is the fraction
 of episodes that reach the flag or the axe.

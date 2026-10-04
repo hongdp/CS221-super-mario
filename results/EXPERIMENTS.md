@@ -10,6 +10,9 @@ diagnostics and dead ends behind the design decisions. Raw data lives next to th
 **Machine**: 4 vCPU Intel Xeon @ 2.8 GHz, 15 GB RAM, no GPU. **Software**: Python 3.11, PyTorch 2.14
 (CPU), Gymnasium 1.3, stable-retro 1.0.1, NumPy 2.4.
 
+**Note**: `tiles2` became the default observation after E10. All runs before E9 used `--obs tiles`,
+which was the default then.
+
 **Evaluation protocol**: unless noted, a checkpoint is evaluated with 10 stochastic episodes on
 each of the 22 training and 7 held-out levels (`mario-rl eval --episodes 10`). Each episode uses
 0-30 random no-op frames at the start. *Progress* is the fraction of the level reached (1.0 at the
@@ -100,7 +103,7 @@ and 28.9% in-training-eval train progress (old run: 17.7%). Held-out was unchang
 
 ## E6: Main run `tiles-uniform-8m`
 
-Folder: `tiles-uniform-8m/`. Default config, 22 training levels, uniform sampling, 8M steps.
+Folder: `tiles-uniform-8m/`. `--obs tiles`, otherwise default config; 22 training levels, uniform sampling, 8M steps.
 Run 2026-10-03 21:22 to 2026-10-04 00:49 (3.4 h, ~650 env steps/s).
 
 | steps | train progress | train completion | held-out progress | held-out completion |
