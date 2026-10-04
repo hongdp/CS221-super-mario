@@ -109,7 +109,8 @@ held-out levels have relatives in the training set.
 ## Results
 
 All numbers come from `results/tiles-uniform-8m/` and can be reproduced with the commands in
-[`results/README.md`](results/README.md). The run trained for 8M env steps (32M frames) on the
+[`results/README.md`](results/README.md). Every experiment, including the diagnostics behind the
+design decisions, is logged in [`results/EXPERIMENTS.md`](results/EXPERIMENTS.md). The run trained for 8M env steps (32M frames) on the
 22 training levels with uniform level sampling and the default configuration. It took about 3.4 h on a
 4-vCPU VM with no GPU. Every 1M-step checkpoint was then re-evaluated with 10 stochastic episodes per
 level. "Progress" is the fraction of the level reached (1.0 = flag), and "completion" is the fraction
