@@ -10,6 +10,13 @@ from torch.distributions import Categorical
 from .tiles import NUM_TILE_TYPES, NUM_TILE_TYPES2
 
 
+def _onehot(grid: torch.Tensor, n: int) -> torch.Tensor:
+    """(B, S, H, W) integer grid -> (B, S*n, H, W) float one-hot (no int64 / permute copies)."""
+    b, s, h, w = grid.shape
+    classes = torch.arange(n, dtype=grid.dtype, device=grid.device).view(1, 1, n, 1, 1)
+    return (grid.unsqueeze(2) == classes).reshape(b, s * n, h, w).float()
+
+
 def _init(layer: nn.Module, gain: float = np.sqrt(2)) -> nn.Module:
     nn.init.orthogonal_(layer.weight, gain)
     nn.init.zeros_(layer.bias)
@@ -41,11 +48,12 @@ class TileEncoder(nn.Module):
         self.fc = nn.Sequential(_init(nn.Linear(n_flat, hidden)), nn.ReLU())
         self.out_dim = hidden
 
-    def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        b, stack, rows, cols = obs.shape
-        onehot = nn.functional.one_hot(obs.long(), NUM_TILE_TYPES)  # B,S,R,C,T
-        x = onehot.permute(0, 1, 4, 2, 3).reshape(b, stack * NUM_TILE_TYPES, rows, cols)
-        return self.fc(self.net(x.float()))
+    @staticmethod
+    def preprocess(obs: torch.Tensor) -> torch.Tensor:
+        return _onehot(obs, NUM_TILE_TYPES)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.fc(self.net(x))
 
 
 class PixelEncoder(nn.Module):
@@ -68,14 +76,19 @@ class PixelEncoder(nn.Module):
         self.fc = nn.Sequential(_init(nn.Linear(n_flat, hidden)), nn.ReLU())
         self.out_dim = hidden
 
-    def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        return self.fc(self.net(obs.float() / 255.0))
+    @staticmethod
+    def preprocess(obs: torch.Tensor) -> torch.Tensor:
+        return obs.float() / 255.0
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.fc(self.net(x))
 
 
 class TileEncoderV2(nn.Module):
     """8px grid (one-hot, stride-2 CNN) fused with Mario's state vector.
 
-    Input: {"grid": (B, stack, 26, 32) uint8, "vec": (B, F) float32}. About 2.7M MACs/sample.
+    Input: {"grid": (B, stack, 26, 32) uint8, "vec": (B, F) float32}. About 2M MACs/sample,
+    comparable to TileEncoder.
     """
 
     def __init__(self, obs_shape: dict, hidden: int = 256):
@@ -84,11 +97,11 @@ class TileEncoderV2(nn.Module):
         n_vec = obs_shape["vec"][0]
         self.in_channels = stack * NUM_TILE_TYPES2
         self.net = nn.Sequential(
-            _init(nn.Conv2d(self.in_channels, 16, 3, stride=2, padding=1)),
+            _init(nn.Conv2d(self.in_channels, 16, 3, stride=2, padding=1)),  # 13x16
             nn.ReLU(),
-            _init(nn.Conv2d(16, 32, 3, padding=1)),
+            _init(nn.Conv2d(16, 32, 3, stride=2, padding=1)),  # 7x8
             nn.ReLU(),
-            _init(nn.Conv2d(32, 32, 3, stride=2, padding=1)),
+            _init(nn.Conv2d(32, 32, 3, padding=1)),
             nn.ReLU(),
             nn.Flatten(),
         )
@@ -97,12 +110,13 @@ class TileEncoderV2(nn.Module):
         self.fc = nn.Sequential(_init(nn.Linear(n_flat + n_vec, hidden)), nn.ReLU())
         self.out_dim = hidden
 
-    def forward(self, obs: dict) -> torch.Tensor:
-        grid = obs["grid"]
-        b, stack, rows, cols = grid.shape
-        onehot = nn.functional.one_hot(grid.long(), NUM_TILE_TYPES2)
-        x = onehot.permute(0, 1, 4, 2, 3).reshape(b, stack * NUM_TILE_TYPES2, rows, cols)
-        return self.fc(torch.cat([self.net(x.float()), obs["vec"].float()], dim=-1))
+    @staticmethod
+    def preprocess(obs: dict) -> tuple[torch.Tensor, torch.Tensor]:
+        return _onehot(obs["grid"], NUM_TILE_TYPES2), obs["vec"].float()
+
+    def forward(self, x: tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        grid, vec = x
+        return self.fc(torch.cat([self.net(grid), vec], dim=-1))
 
 
 def _encoder(obs_type: str, obs_shape) -> nn.Module:
@@ -138,14 +152,15 @@ class ActorCritic(nn.Module):
         self.policy = _init(nn.Linear(self.actor_encoder.out_dim, n_actions), gain=0.01)
         self.value = _init(nn.Linear(self.actor_encoder.out_dim, 1), gain=1.0)
 
-    def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        h = self.actor_encoder(obs)
-        h_v = h if self.critic_encoder is None else self.critic_encoder(obs)
+    def forward(self, obs) -> tuple[torch.Tensor, torch.Tensor]:
+        x = self.actor_encoder.preprocess(obs)  # shared by both encoders
+        h = self.actor_encoder(x)
+        h_v = h if self.critic_encoder is None else self.critic_encoder(x)
         return self.policy(h), self.value(h_v).squeeze(-1)
 
-    def get_value(self, obs: torch.Tensor) -> torch.Tensor:
+    def get_value(self, obs) -> torch.Tensor:
         encoder = self.actor_encoder if self.critic_encoder is None else self.critic_encoder
-        return self.value(encoder(obs)).squeeze(-1)
+        return self.value(encoder(encoder.preprocess(obs))).squeeze(-1)
 
     def parameter_groups(self) -> list[list[nn.Parameter]]:
         """Parameter groups whose gradients are clipped independently."""
