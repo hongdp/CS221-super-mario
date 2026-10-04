@@ -9,6 +9,8 @@ level 1-1. The 2026 rewrite ports it to a modern stack and changes the goal:
   dependency on the unmaintained `gym` / `nes-py` packages; NumPy 2 compatible.
 - **Observation**: the 13x16 symbolic *tile grid* idea from 2017, now decoded straight from RAM.
   It is the same in overworld, underground, water and castle levels, which helps generalization.
+  `tiles2` is a richer 8px version built from the game's collision boxes, with stompable vs
+  hazard enemies, firebars, hammers and exact lift sizes, plus Mario's velocity and state.
   An 84x84 grayscale pixel mode is available for comparison.
 - **Agent**: PyTorch PPO with GAE, correct bootstrapping on time-limit truncation, and optional
   [Prioritized Level Replay](https://arxiv.org/abs/2010.03934).
@@ -64,6 +66,12 @@ same process; use separate processes to run several at once (the trainer does th
 | Reward | `0.1 x (Δx − clock ticks − 25·death + 50·flag)`; Δx ignores teleports through pipes |
 | Episode end | terminated on death or on reaching the flag / castle axe; truncated after 3000 steps or 250 steps without new progress |
 | Info | `level`, `x_pos`, `max_x`, `progress` (fraction of the level, 1.0 when the flag is reached), `flag_get`, and an `episode` summary at the end |
+
+**`tiles2` observation** (`--obs tiles2`): `{"grid": (4, 26, 32), "vec": (10,)}`. Each 8px cell is
+one of `empty, solid, stompable, hazard, platform, mario`. Mario, enemies, lifts and hammers are
+rasterized from the collision boxes the game computes each frame (`$04AC`/`$04B0`/`$04D0`), and
+firebar segments from the sprite table. `vec` holds Mario's x/y speed, ground / jump / fall / climb
+state, size, fire power, swimming and star power.
 
 **Tile observation**: the game keeps its foreground in a 2-page *block buffer* at `$0500`. Each of
 the 13x16 screen cells becomes one of `empty, solid, enemy, platform, mario`. Enemies, lifts and
@@ -144,16 +152,28 @@ norm was about 145 versus about 1.1 for the policy loss, so the shared features 
 function. Decoupling the two networks and normalizing rewards (now the defaults) raised
 training-level progress at 1M steps from 17.7% to 28.9%, both measured by the in-training evaluation.
 
+### Comparisons at 3M steps
+
+Same settings and seed as the main run, changing one thing at a time. Each row uses the checkpoint
+at 3M steps, evaluated with 10 episodes per level. At this sample size, differences of about ±2-3
+points are noise.
+
+| variant | train progress | train completion | held-out progress | held-out completion |
+|---|---|---|---|---|
+| `tiles` (main run, 3M checkpoint) | 38.5% | 1.8% | 20.8% | 0.0% |
+| `tiles` + `--sticky-prob 0.25` | 40.3% | 4.1% | 17.3% | 0.0% |
+| `tiles2` (8px grid + state vector) | _running_ | | | |
+| `pixels` (84x84 grayscale) | _queued_ | | | |
+
+- **Sticky actions do not help held-out levels.** Training levels are slightly better and held-out
+  levels are no better. The memorization is not merely open-loop button sequences.
+
 ### Directions to improve generalization
 
-All of these build on the current tooling:
-
-- `--sticky-prob 0.25`: sticky actions break open-loop memorization (comparison below).
-- `--level-sampler plr`: Prioritized Level Replay.
-- More randomness inside each level, such as starting episodes from mid-level states or
-  augmenting the tile grid (random translations, tile dropout).
-- More compute. Mario is sample-hungry, and this run gave each training level only about 360k steps.
-
+- `--level-sampler plr`: Prioritized Level Replay (implemented, not yet evaluated).
+- More randomness inside each level, such as starting episodes from mid-level states or augmenting
+  the grid (random translations, tile dropout).
+- More compute. Mario is sample-hungry, and the main run gave each training level only about 360k steps.
 
 ## Project layout
 
@@ -161,7 +181,8 @@ All of these build on the current tooling:
 src/mario_rl/
   emulator.py   stable-retro FCEUmm wrapper: frames, RAM read/write, save states
   smb.py        SMB RAM map, level select, death / flag detection, cut-scene skipping
-  tiles.py      RAM -> 13x16 symbolic tile grid
+  tiles.py      RAM -> 13x16 tile grid (tiles) and 26x32 grid + state vector (tiles2)
+  obs.py        helpers so array and dict observations share one code path
   levels.py     levels, goal distances, train / test splits
   env.py        Gymnasium MarioEnv (+ "MarioRL/SuperMarioBros-v0" registration)
   models.py     actor-critic networks (tiles / pixels)
