@@ -1,0 +1,51 @@
+{
+  "ppo": {
+    "run_name": "sanity11_decoupled",
+    "out_dir": "/tmp/claude-0/-home-user-CS221-super-mario/88fc6717-eda0-5607-8f3f-e8407b7d1402/scratchpad/runs",
+    "seed": 1,
+    "total_steps": 204800,
+    "num_envs": 8,
+    "num_steps": 256,
+    "num_minibatches": 4,
+    "update_epochs": 4,
+    "lr": 0.00025,
+    "anneal_lr": true,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_coef": 0.2,
+    "ent_coef": 0.01,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5,
+    "shared_encoder": false,
+    "norm_reward": true,
+    "level_sampler": "uniform",
+    "plr_temperature": 0.1,
+    "plr_staleness": 0.1,
+    "eval_interval": 0,
+    "eval_levels": "test",
+    "eval_on_train": true,
+    "eval_episodes": 2,
+    "eval_greedy": false,
+    "save_interval": 204800,
+    "torch_threads": 0,
+    "resume": null
+  },
+  "env": {
+    "levels": [
+      "1-1"
+    ],
+    "obs": "tiles",
+    "actions": "simple",
+    "frame_skip": 4,
+    "frame_stack": 4,
+    "noop_max": 30,
+    "max_episode_steps": 3000,
+    "stuck_steps": 250,
+    "reward_scale": 0.1,
+    "time_penalty": 1.0,
+    "death_penalty": 25.0,
+    "flag_reward": 50.0,
+    "rom_path": null,
+    "level_weights": null
+  }
+}

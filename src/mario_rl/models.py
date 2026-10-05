@@ -1,0 +1,200 @@
+"""Actor-critic networks for tile-grid (v1/v2) and pixel observations."""
+
+from __future__ import annotations
+
+import numpy as np
+import torch
+from torch import nn
+from torch.distributions import Categorical
+
+from .tiles import NUM_TILE_TYPES, NUM_TILE_TYPES2
+
+
+def _onehot(grid: torch.Tensor, n: int) -> torch.Tensor:
+    """(B, S, H, W) integer grid -> (B, S*n, H, W) float one-hot (no int64 / permute copies)."""
+    b, s, h, w = grid.shape
+    classes = torch.arange(n, dtype=grid.dtype, device=grid.device).view(1, 1, n, 1, 1)
+    return (grid.unsqueeze(2) == classes).reshape(b, s * n, h, w).float()
+
+
+def _init(layer: nn.Module, gain: float = np.sqrt(2)) -> nn.Module:
+    nn.init.orthogonal_(layer.weight, gain)
+    nn.init.zeros_(layer.bias)
+    return layer
+
+
+class TileEncoder(nn.Module):
+    """One-hot the categorical tile grid, then a small CNN.
+
+    Input: (B, stack, 13, 16) uint8 with values in [0, NUM_TILE_TYPES).
+    """
+
+    def __init__(self, obs_shape: tuple[int, ...], hidden: int = 256):
+        super().__init__()
+        stack, rows, cols = obs_shape
+        self.in_channels = stack * NUM_TILE_TYPES
+        # Deliberately small (~1.8M MACs/sample): training runs on CPUs.
+        self.net = nn.Sequential(
+            _init(nn.Conv2d(self.in_channels, 16, 3, padding=1)),
+            nn.ReLU(),
+            _init(nn.Conv2d(16, 32, 3, stride=2, padding=1)),
+            nn.ReLU(),
+            _init(nn.Conv2d(32, 32, 3, padding=1)),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        with torch.no_grad():
+            n_flat = self.net(torch.zeros(1, self.in_channels, rows, cols)).shape[1]
+        self.fc = nn.Sequential(_init(nn.Linear(n_flat, hidden)), nn.ReLU())
+        self.out_dim = hidden
+
+    @staticmethod
+    def preprocess(obs: torch.Tensor) -> torch.Tensor:
+        return _onehot(obs, NUM_TILE_TYPES)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.fc(self.net(x))
+
+
+class PixelEncoder(nn.Module):
+    """Nature-DQN CNN for (B, stack, 84, 84) uint8 grayscale frames."""
+
+    def __init__(self, obs_shape: tuple[int, ...], hidden: int = 512):
+        super().__init__()
+        stack = obs_shape[0]
+        self.net = nn.Sequential(
+            _init(nn.Conv2d(stack, 32, 8, stride=4)),
+            nn.ReLU(),
+            _init(nn.Conv2d(32, 64, 4, stride=2)),
+            nn.ReLU(),
+            _init(nn.Conv2d(64, 64, 3, stride=1)),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        with torch.no_grad():
+            n_flat = self.net(torch.zeros(1, *obs_shape)).shape[1]
+        self.fc = nn.Sequential(_init(nn.Linear(n_flat, hidden)), nn.ReLU())
+        self.out_dim = hidden
+
+    @staticmethod
+    def preprocess(obs: torch.Tensor) -> torch.Tensor:
+        return obs.float() / 255.0
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.fc(self.net(x))
+
+
+class TileEncoderV2(nn.Module):
+    """8px grid (one-hot, stride-2 CNN) fused with Mario's state vector.
+
+    Input: {"grid": (B, stack, 26, 32) uint8, "vec": (B, F) float32}. About 2M MACs/sample,
+    comparable to TileEncoder.
+    """
+
+    def __init__(self, obs_shape: dict, hidden: int = 256):
+        super().__init__()
+        stack, rows, cols = obs_shape["grid"]
+        n_vec = obs_shape["vec"][0]
+        self.in_channels = stack * NUM_TILE_TYPES2
+        self.net = nn.Sequential(
+            _init(nn.Conv2d(self.in_channels, 16, 3, stride=2, padding=1)),  # 13x16
+            nn.ReLU(),
+            _init(nn.Conv2d(16, 32, 3, stride=2, padding=1)),  # 7x8
+            nn.ReLU(),
+            _init(nn.Conv2d(32, 32, 3, padding=1)),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        with torch.no_grad():
+            n_flat = self.net(torch.zeros(1, self.in_channels, rows, cols)).shape[1]
+        self.fc = nn.Sequential(_init(nn.Linear(n_flat + n_vec, hidden)), nn.ReLU())
+        self.out_dim = hidden
+
+    @staticmethod
+    def preprocess(obs: dict) -> tuple[torch.Tensor, torch.Tensor]:
+        return _onehot(obs["grid"], NUM_TILE_TYPES2), obs["vec"].float()
+
+    def forward(self, x: tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        grid, vec = x
+        return self.fc(torch.cat([self.net(grid), vec], dim=-1))
+
+
+def _encoder(obs_type: str, obs_shape) -> nn.Module:
+    if obs_type == "tiles":
+        return TileEncoder(obs_shape)
+    if obs_type == "tiles2":
+        return TileEncoderV2(obs_shape)
+    if obs_type == "pixels":
+        return PixelEncoder(obs_shape)
+    raise ValueError(f"unknown observation type {obs_type!r}")
+
+
+class ActorCritic(nn.Module):
+    """Policy and value networks.
+
+    By default the actor and critic have separate encoders: with a shared trunk
+    the (much larger) value-loss gradients dominate the features and the
+    policy struggles to condition on the state; decoupling also helps
+    generalization (Raileanu & Fergus, 2021, "Decoupling Value and Policy for
+    Generalization in RL"). ``shared=True`` restores a single trunk.
+    """
+
+    def __init__(self, obs_type: str, obs_shape, n_actions: int, shared: bool = False):
+        super().__init__()
+        self.obs_type = obs_type
+        self.obs_shape = (
+            {k: tuple(v) for k, v in obs_shape.items()} if isinstance(obs_shape, dict) else tuple(obs_shape)
+        )
+        self.n_actions = n_actions
+        self.shared = shared
+        self.actor_encoder = _encoder(obs_type, self.obs_shape)
+        self.critic_encoder = None if shared else _encoder(obs_type, self.obs_shape)
+        self.policy = _init(nn.Linear(self.actor_encoder.out_dim, n_actions), gain=0.01)
+        self.value = _init(nn.Linear(self.actor_encoder.out_dim, 1), gain=1.0)
+
+    def forward(self, obs) -> tuple[torch.Tensor, torch.Tensor]:
+        x = self.actor_encoder.preprocess(obs)  # shared by both encoders
+        h = self.actor_encoder(x)
+        h_v = h if self.critic_encoder is None else self.critic_encoder(x)
+        return self.policy(h), self.value(h_v).squeeze(-1)
+
+    def get_value(self, obs) -> torch.Tensor:
+        encoder = self.actor_encoder if self.critic_encoder is None else self.critic_encoder
+        return self.value(encoder(encoder.preprocess(obs))).squeeze(-1)
+
+    def parameter_groups(self) -> list[list[nn.Parameter]]:
+        """Parameter groups whose gradients are clipped independently."""
+        if self.critic_encoder is None:
+            return [list(self.parameters())]
+        actor = [*self.actor_encoder.parameters(), *self.policy.parameters()]
+        critic = [*self.critic_encoder.parameters(), *self.value.parameters()]
+        return [actor, critic]
+
+    def act(
+        self, obs: torch.Tensor, greedy: bool = False, generator: torch.Generator | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sample (or argmax) actions; returns (action, log-prob, value)."""
+        logits, value = self(obs)
+        log_probs = torch.log_softmax(logits, -1)
+        if greedy:
+            action = logits.argmax(-1)
+        else:
+            # Gumbel-max trick: exact categorical sampling, much cheaper than multinomial.
+            u = torch.rand(log_probs.shape, generator=generator).clamp_(1e-10, 1.0)
+            action = (log_probs - (-u.log()).log()).argmax(-1)
+        return action, log_probs.gather(-1, action[:, None]).squeeze(-1), value
+
+    def evaluate_actions(
+        self, obs: torch.Tensor, actions: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        logits, value = self(obs)
+        dist = Categorical(logits=logits)
+        return dist.log_prob(actions), dist.entropy(), value
+
+    def spec(self) -> dict:
+        return {
+            "obs_type": self.obs_type,
+            "obs_shape": self.obs_shape,
+            "n_actions": self.n_actions,
+            "shared": self.shared,
+        }
