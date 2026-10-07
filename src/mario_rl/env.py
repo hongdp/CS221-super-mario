@@ -76,8 +76,9 @@ class EnvConfig:
     # is kept only once Mario has survived mid_start_confirm more agent steps after it.
     # In 1-2 and 4-2 Mario can run on top of the ceiling past the exit pipe into the warp zone.
     # It pays more x than the exit, but it is a dead end here (warp pipes need DOWN and lead to
-    # other worlds), so agents learn to get stuck there. When enabled, staying above the screen
-    # for ceiling_steps agent steps in those levels ends the episode like a death.
+    # other worlds), so agents learn to get stuck there. When enabled, in those levels running
+    # above the screen earns no progress reward, and staying up there (ceiling_steps net agent
+    # steps) ends the episode like a death.
     block_ceiling_route: bool = True
     ceiling_steps: int = 8
     mid_start_prob: float = 0.0
@@ -204,6 +205,7 @@ class MarioEnv(gym.Env):
         ticks = 0
         dead = flag = False
         ram = None
+        ceiling_level = cfg.block_ceiling_route and str(self.level) in CEILING_ROUTE_LEVELS
         for _ in range(cfg.frame_skip):
             if cfg.sticky_prob and self.np_random.random() < cfg.sticky_prob:
                 pressed = self._last_buttons
@@ -218,7 +220,9 @@ class MarioEnv(gym.Env):
                 self._x_last = smb.x_pos(ram)
             x = smb.x_pos(ram)
             dx = x - self._x_last
-            if abs(dx) <= 8:  # ignore teleports (pipes, sub-areas)
+            # ignore teleports (pipes, sub-areas); on a ceiling-route level, running above the
+            # screen earns nothing, so the dead-end ceiling route never outpays the exit pipe
+            if abs(dx) <= 8 and not (ceiling_level and ram[smb.PLAYER_Y_VIEWPORT] == 0):
                 dx_total += dx
             self._x_last = x
             now = smb.game_time(ram)
@@ -240,9 +244,10 @@ class MarioEnv(gym.Env):
         else:
             self._steps_since_progress += 1
 
-        if cfg.block_ceiling_route and str(self.level) in CEILING_ROUTE_LEVELS:
+        if ceiling_level:
             above = ram[smb.PLAYER_Y_VIEWPORT] == 0 and not dead and not flag
-            self._steps_above = self._steps_above + 1 if above else 0
+            # bobbing back onto the screen while running on the ceiling only decrements the count
+            self._steps_above = self._steps_above + 1 if above else max(self._steps_above - 1, 0)
             if self._steps_above >= cfg.ceiling_steps:
                 dead = True  # out of bounds on the ceiling: treated as a death
 
