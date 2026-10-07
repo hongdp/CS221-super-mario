@@ -80,6 +80,10 @@ class EnvConfig:
     # above the screen earns no progress reward, and staying up there (ceiling_steps net agent
     # steps) ends the episode like a death.
     block_ceiling_route: bool = True
+    # Swimming strokes trigger on a new A press, and the frame skip turns consecutive A actions
+    # into one long hold (one stroke), so Mario sinks unless the agent alternates A and no-A.
+    # When enabled, A is released on the last frame of every agent step while swimming.
+    swim_tap: bool = True
     ceiling_steps: int = 8
     mid_start_prob: float = 0.0
     mid_start_bucket: int = 256
@@ -206,12 +210,14 @@ class MarioEnv(gym.Env):
         dead = flag = False
         ram = None
         ceiling_level = cfg.block_ceiling_route and str(self.level) in CEILING_ROUTE_LEVELS
-        for _ in range(cfg.frame_skip):
+        for k in range(cfg.frame_skip):
             if cfg.sticky_prob and self.np_random.random() < cfg.sticky_prob:
                 pressed = self._last_buttons
             else:
                 pressed = buttons
             self._last_buttons = pressed
+            if cfg.swim_tap and k == cfg.frame_skip - 1 and ram is not None and ram[smb.SWIMMING]:
+                pressed &= ~A  # end the press, so the next A action is a fresh stroke
             game.frame(pressed)
             ram = game.ram()
             if smb.is_busy(ram) and not smb.flag_get(ram) and not smb.is_dead(ram):

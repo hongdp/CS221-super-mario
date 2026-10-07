@@ -220,3 +220,14 @@ def test_mid_level_start_skips_idle_frames():
             assert env._mid_start
             rams.append(env._game.ram().copy())
         assert all(np.array_equal(rams[0], r) for r in rams[1:])
+
+
+@pytest.mark.parametrize("swim_tap", [False, True])
+def test_swim_tap_turns_held_a_into_strokes(swim_tap):
+    """Underwater, holding A (action 5) every step sinks Mario unless each step re-presses A."""
+    with closing(MarioEnv(levels=("2-2",), obs="tiles2", noop_max=0, swim_tap=swim_tap)) as env:
+        env.reset(seed=0, options={"level": "2-2"})
+        for _ in range(30):
+            env.step(5)
+        y = int(env._game.ram()[smb.PLAYER_Y])
+        assert (y < 60) if swim_tap else (y > 150)
