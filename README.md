@@ -40,7 +40,8 @@ Without uv: `pip install torch --index-url https://download.pytorch.org/whl/cpu 
 **GPU**: install a CUDA build of torch over the CPU one, e.g.
 `uv pip install --reinstall-package torch torch --index-url https://download.pytorch.org/whl/cu130`.
 With a GPU present, the PPO update and action selection move there automatically (`--device auto`, `--inference auto`).
-The best observation so far is the egocentric window: add `--ego-back 4 --ego-ahead 12` (see Results).
+The best observations so far are egocentric windows: `--ego-back 2 --ego-ahead 8` for unseen levels,
+`--ego-back 4 --ego-ahead 12` for clearing the training levels (see Results).
 `mario-rl train --help` lists every option; they map 1:1 onto `EnvConfig` and `PPOConfig`.
 
 Using the environment directly:
@@ -206,6 +207,9 @@ points are noise.
 | DrAC random shifts | +3.0 | none | 1 |
 | IMPALA encoder | +0.1 | −12 pts progress | 1 |
 | **egocentric window, 4 behind / 12 ahead** | **+3.95 (25.4 ± 1.9)** | **none** | **3** |
+| egocentric window, 6 behind / 16 ahead | +6.2 (27.7 ± 3.5; one-seed driven) | none | 3 |
+| **egocentric window, 2 behind / 8 ahead** | **+8.7 (30.2 ± 1.2)** | −8 pts completion | 3 |
+| window 4/12 + PLR β=1.0 | +3.6 (no gain over the window alone) | −3 pts completion | 3 |
 
 - A failure analysis (E19) found the grid exactly aligned, with the cause of every inspected held-out death
   visible in it. The agent dies at the *same* gap or piranha plant in almost every episode. It has memorized
@@ -216,7 +220,9 @@ points are noise.
 
 ### Directions to improve generalization
 
-- Tune the window (2/8 and 6/16 ablations running) and combine it with PLR β=1.0.
+- Narrower windows transfer better but see less ahead: 2/8 is best for unseen levels, while clearing
+  levels needs the 4/12 lookahead. Try asymmetric windows (e.g. 2/12).
+- Mid-level starts (`--mid-start-prob`) so the late sections of levels get practice (E23, running).
 - Procedurally perturbed training levels (shift gaps, enemy placement and timing via RAM edits at
   reset), so that memorizing routes stops working.
 - A non-exclusive grid encoding (terrain and object planes), so hazards no longer overwrite solid ground.

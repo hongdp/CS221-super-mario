@@ -290,4 +290,22 @@ transfer without trading anything away. Plot: `10m-study/families_10m.png`.
 | IMPALA encoder | +0.1 | −12 pts progress | 1 |
 | **egocentric window 4/12** | **+3.95** | **none** | **3** |
 
-Next (running): window-size ablation (2/8, 6/16) and ego + PLR β=1.0, 3 seeds each.
+
+## E21, E22: window size and ego + PLR (3 seeds each)
+
+| config | held-out late | per-seed Δ vs ego 4/12 | train completion @10M | gap |
+|---|---|---|---|---|
+| full screen | 21.5 ± 1.0 | −5.8 / −5.0 / −1.0 | 29.1 | 42.4 |
+| ego 4/12 (E20) | 25.4 ± 1.9 | — | 29.2 | 37.1 |
+| **ego 2/8** | **30.2 ± 1.2** | **+4.3 / +4.4 / +5.6** | **20.8** | **28.8** |
+| ego 6/16 | 27.7 ± 3.5 | −1.6 / 0.0 / +8.3 | 29.2 | 36.3 |
+| ego 4/12 + PLR β=1.0 | 25.1 ± 3.4 | −0.7 / +1.5 / −1.7 | 25.8 | 36.5 |
+
+- **2/8 gives the best transfer of the project**: +8.7 over full screen, better than 4/12 for every seed, with the
+  smallest spread. It costs 8 points of training-level completion, because 64 px of lookahead is less than a full
+  running jump.
+- 6/16 is inconclusive: one seed at +8.3 and the other two at or below 4/12.
+- PLR adds nothing on top of the window (refuted) and again costs train completion. It is dropped from the recipe.
+- **Trade-off**: a narrow view is best for unseen levels (goal B), while a wider lookahead is needed to clear levels (goal A).
+
+Next: E23 (running) tests mid-level starts for goal A (clearing the whole game).
