@@ -202,3 +202,21 @@ def test_mid_level_starts_disabled_by_default():
         for _ in range(60):
             env.step(1)
         assert env._archive == {}
+
+
+def test_mid_level_start_skips_idle_frames():
+    """Restarting from an archived state is deterministic: no random idle frames after the load."""
+    with closing(MarioEnv(levels=("1-1",), obs="tiles2", noop_max=30, mid_start_prob=1.0)) as env:
+        env.reset(seed=0, options={"level": "1-1"})
+        for t in range(400):
+            _, _, term, trunc, _ = env.step(4 if t % 12 < 6 else 3)
+            if term or trunc:
+                break
+        key, state = next(iter(env._archive[env.level].items()))
+        env._archive = {env.level: {key: state}}
+        rams = []
+        for seed in (1, 2, 3):
+            env.reset(seed=seed)
+            assert env._mid_start
+            rams.append(env._game.ram().copy())
+        assert all(np.array_equal(rams[0], r) for r in rams[1:])

@@ -15,12 +15,16 @@ from .tiles import (
     COLS,
     COLS2,
     EMPTY2,
+    HAZARD2,
+    MARIO2,
     NUM_FEATURES,
     NUM_TILE_TYPES,
     NUM_TILE_TYPES2,
+    PLATFORM2,
     ROWS,
     ROWS2,
     SOLID2,
+    STOMPABLE2,
     mario_features,
     tile_grid,
     tile_grid_v2,
@@ -175,7 +179,10 @@ class MarioEnv(gym.Env):
             self._game.emu.set_state(archive[keys[int(self.np_random.integers(len(keys)))]])
             self._mid_start = True
         self._pending = None
-        for _ in range(int(self.np_random.integers(0, self.config.noop_max + 1))):
+        # Idle frames vary enemy timing at a level start. After a mid-level load they could carry
+        # Mario (e.g. on a moving lift) into a situation the archived state never survived.
+        noops = 0 if self._mid_start else int(self.np_random.integers(0, self.config.noop_max + 1))
+        for _ in range(noops):
             self._game.frame(0)
         ram = self._game.ram()
         self._reset_episode_state(ram)
@@ -305,6 +312,7 @@ class MarioEnv(gym.Env):
             and ram[smb.PLAYER_FLOAT_STATE] == 0  # standing or running on the ground
             and ram[smb.PLAYER_Y_VIEWPORT] == 1
             and not smb.is_busy(ram)
+            and _safe_start(ram)
         ):
             self._pending = (key, self._game.emu.get_state(), self.config.mid_start_confirm)
 
@@ -330,6 +338,22 @@ class MarioEnv(gym.Env):
             "flag_get": self._flag,
             "time": smb.game_time(ram),
         }
+
+
+def _safe_start(ram: np.ndarray) -> bool:
+    """No lift/platform around Mario and no enemy or hazard right next to him.
+
+    States on lifts are fragile to restart from: a lift's timing relative to Mario is easy to lose.
+    """
+    grid = tile_grid_v2(ram)
+    _, cols = np.nonzero(grid == MARIO2)
+    if not len(cols):
+        return False
+    c = int(cols.min())
+    if (grid[:, max(c - 4, 0) : c + 12] == PLATFORM2).any():
+        return False
+    near = grid[:, max(c - 4, 0) : c + 6]
+    return not ((near == STOMPABLE2) | (near == HAZARD2)).any()
 
 
 _GRAY = np.array([0.299, 0.587, 0.114], dtype=np.float32)
