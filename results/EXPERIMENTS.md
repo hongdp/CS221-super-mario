@@ -343,4 +343,15 @@ length was the bottleneck for goal A, and the curve was still rising at 100M. Re
 trap**. The agent runs on top of the ceiling into the warp zone (90-100% progress, never the flag), because warp pipes
 need DOWN and lead to other worlds. This is now blocked by `block_ceiling_route`. Also failing: the water levels 2-2 and
 7-2 (0%), the 6-4 castle, and the seed-dependent 8-1 and 8-3. Per-checkpoint evals: `goalA-100m/`.
-Phase 2 (running): both seeds resumed to 120M with the ceiling fix.
+
+**Phases 2-3**: both seeds resumed to 120M with ceiling fix v1, then to 140M with v2. In v2, progress above the screen
+earns nothing on 1-2/4-2. In v1, Mario bobbing on the top edge kept resetting the counter, so the ceiling run still
+outpaid the exit pipe.
+
+| checkpoint | greedy completion (seed 1 / 2) | levels ≥50% | 1-2 | 4-2 |
+|---|---|---|---|---|
+| 100M | 70.7 / 71.0 | 22 / 21 | 0 / 0 | 0 / 0 |
+| 120M (fix v1) | 75.5 / 76.6 | 22 / 22 | 0 / 0 | 100 / 70 (stoch.) |
+| **140M (fix v2)** | **80.7 / 79.3** | **25 / 25** | **90 / 70** | **100 / 100** |
+
+Still below 50% (greedy): the water levels 2-2 and 7-2, the castle 6-4, and 8-1 / 7-1 (one seed each).
