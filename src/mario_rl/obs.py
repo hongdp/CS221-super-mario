@@ -18,6 +18,12 @@ def to_torch(obs: Obs, batch: bool = False):
     return tensor[None] if batch else tensor
 
 
+def to_device(obs, device):
+    if isinstance(obs, dict):
+        return {k: v.to(device, non_blocking=True) for k, v in obs.items()}
+    return obs.to(device, non_blocking=True)
+
+
 def allocate(template: Obs, n: int) -> Obs:
     if isinstance(template, dict):
         return {k: allocate(v, n) for k, v in template.items()}
@@ -30,6 +36,13 @@ def store(buffer: Obs, index: int, obs: Obs) -> None:
             buffer[k][index] = obs[k]
     else:
         buffer[index] = obs
+
+
+def stack(items: list[Obs]) -> Obs:
+    """List of single observations -> one batched observation."""
+    if isinstance(items[0], dict):
+        return {k: np.stack([o[k] for o in items]) for k in items[0]}
+    return np.stack(items)
 
 
 def concat(items: list[Obs]) -> Obs:

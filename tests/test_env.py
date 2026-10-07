@@ -144,3 +144,34 @@ def test_tiles2_dict_observation():
         assert vec[2] == 1.0  # on the ground
         obs, _ = env.reset(options={"level": "2-2"})
         assert obs["vec"][8] == 1.0  # swimming level
+
+
+def test_ego_window_follows_mario():
+    with closing(MarioEnv(levels=("1-1",), obs="tiles2", noop_max=0, ego_back=4, ego_ahead=12)) as env:
+        check_env(env, skip_render_check=True)
+        assert env.observation_space["grid"].shape == (4, 26, 16)
+        obs, _ = env.reset(seed=0, options={"level": "1-1"})
+        for _ in range(60):  # run right until the screen scrolls
+            obs, *_ = env.step(1)
+        full = env._frames[-1]
+        grid = obs["grid"][-1]
+        _, cols = np.nonzero(grid == 5)  # MARIO2
+        assert cols.min() == 4  # Mario's left cell sits ego_back cells into the window
+        _, full_cols = np.nonzero(full == 5)
+        left = full_cols.min() - 4
+        assert np.array_equal(grid, full[:, left : left + 16])
+        # Mario at the left screen edge: the cells behind him are padded as solid wall,
+        # at the right edge the cells ahead are padded as empty
+        ram = env._game.ram()
+        frames = env._frames.copy()
+        env._frames[:] = 3  # HAZARD2 everywhere, so padding is easy to spot
+        left = smb.screen_left(ram)
+        try:
+            for x, (pad_slice, value) in ((left, (slice(0, 4), 1)), (left + 255, (slice(4 + 1, 16), 0))):
+                ram_x = ram.copy()
+                ram_x[smb.PLAYER_PAGE], ram_x[smb.PLAYER_X] = divmod(x, 256)
+                window = env._ego_window(ram_x)
+                assert window.shape == (4, 26, 16)
+                assert (window[..., pad_slice] == value).all()
+        finally:
+            env._frames[:] = frames

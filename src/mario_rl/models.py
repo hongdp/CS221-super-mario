@@ -119,7 +119,57 @@ class TileEncoderV2(nn.Module):
         return self.fc(torch.cat([self.net(grid), vec], dim=-1))
 
 
-def _encoder(obs_type: str, obs_shape) -> nn.Module:
+class _ResBlock(nn.Module):
+    def __init__(self, channels: int):
+        super().__init__()
+        self.conv0 = _init(nn.Conv2d(channels, channels, 3, padding=1))
+        self.conv1 = _init(nn.Conv2d(channels, channels, 3, padding=1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.conv1(torch.relu(self.conv0(torch.relu(x))))
+
+
+class TileEncoderImpala(nn.Module):
+    """IMPALA-style residual CNN (Espeholt et al. 2018) for the tiles2 observation.
+
+    Compared with TileEncoderV2: full 8px resolution in the first layer (no stride-2 conv),
+    three conv/max-pool/residual stages, and a much smaller position-specific FC
+    (4x4 spatial map instead of 7x8), so most parameters are shared across positions.
+    Cobbe et al. (2019) found this network generalizes far better than the Nature CNN on Procgen.
+    """
+
+    def __init__(self, obs_shape: dict, hidden: int = 256, channels: tuple[int, ...] = (16, 32, 32)):
+        super().__init__()
+        stack, rows, cols = obs_shape["grid"]
+        n_vec = obs_shape["vec"][0]
+        layers: list[nn.Module] = []
+        c_in = stack * NUM_TILE_TYPES2
+        for c in channels:
+            layers += [
+                _init(nn.Conv2d(c_in, c, 3, padding=1)),
+                nn.MaxPool2d(3, stride=2, padding=1),  # 26x32 -> 13x16 -> 7x8 -> 4x4
+                _ResBlock(c),
+                _ResBlock(c),
+            ]
+            c_in = c
+        self.net = nn.Sequential(*layers, nn.ReLU(), nn.Flatten())
+        with torch.no_grad():
+            n_flat = self.net(torch.zeros(1, stack * NUM_TILE_TYPES2, rows, cols)).shape[1]
+        self.fc = nn.Sequential(_init(nn.Linear(n_flat + n_vec, hidden)), nn.ReLU())
+        self.out_dim = hidden
+
+    preprocess = staticmethod(TileEncoderV2.preprocess)
+    forward = TileEncoderV2.forward
+
+
+ARCHS = ("default", "impala")
+
+
+def _encoder(obs_type: str, obs_shape, arch: str = "default") -> nn.Module:
+    if arch == "impala":
+        if obs_type != "tiles2":
+            raise ValueError("arch='impala' is implemented for obs='tiles2' only")
+        return TileEncoderImpala(obs_shape)
     if obs_type == "tiles":
         return TileEncoder(obs_shape)
     if obs_type == "tiles2":
@@ -139,16 +189,17 @@ class ActorCritic(nn.Module):
     Generalization in RL"). ``shared=True`` restores a single trunk.
     """
 
-    def __init__(self, obs_type: str, obs_shape, n_actions: int, shared: bool = False):
+    def __init__(self, obs_type: str, obs_shape, n_actions: int, shared: bool = False, arch: str = "default"):
         super().__init__()
         self.obs_type = obs_type
+        self.arch = arch
         self.obs_shape = (
             {k: tuple(v) for k, v in obs_shape.items()} if isinstance(obs_shape, dict) else tuple(obs_shape)
         )
         self.n_actions = n_actions
         self.shared = shared
-        self.actor_encoder = _encoder(obs_type, self.obs_shape)
-        self.critic_encoder = None if shared else _encoder(obs_type, self.obs_shape)
+        self.actor_encoder = _encoder(obs_type, self.obs_shape, arch)
+        self.critic_encoder = None if shared else _encoder(obs_type, self.obs_shape, arch)
         self.policy = _init(nn.Linear(self.actor_encoder.out_dim, n_actions), gain=0.01)
         self.value = _init(nn.Linear(self.actor_encoder.out_dim, 1), gain=1.0)
 
@@ -180,7 +231,7 @@ class ActorCritic(nn.Module):
             action = logits.argmax(-1)
         else:
             # Gumbel-max trick: exact categorical sampling, much cheaper than multinomial.
-            u = torch.rand(log_probs.shape, generator=generator).clamp_(1e-10, 1.0)
+            u = torch.rand(log_probs.shape, generator=generator, device=log_probs.device).clamp_(1e-10, 1.0)
             action = (log_probs - (-u.log()).log()).argmax(-1)
         return action, log_probs.gather(-1, action[:, None]).squeeze(-1), value
 
@@ -197,4 +248,5 @@ class ActorCritic(nn.Module):
             "obs_shape": self.obs_shape,
             "n_actions": self.n_actions,
             "shared": self.shared,
+            "arch": self.arch,
         }

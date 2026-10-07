@@ -14,11 +14,13 @@ from .levels import TRAIN_LEVELS, Level, parse_levels
 from .tiles import (
     COLS,
     COLS2,
+    EMPTY2,
     NUM_FEATURES,
     NUM_TILE_TYPES,
     NUM_TILE_TYPES2,
     ROWS,
     ROWS2,
+    SOLID2,
     mario_features,
     tile_grid,
     tile_grid_v2,
@@ -58,6 +60,11 @@ class EnvConfig:
     time_penalty: float = 1.0
     death_penalty: float = 25.0
     flag_reward: float = 50.0
+    # Egocentric tiles2 window: keep only the columns from ego_back cells behind Mario to ego_ahead
+    # cells ahead of him (full height). 0/0 keeps the whole screen. Less of the level is visible, so
+    # the network has less layout to memorize and must act on what is near Mario.
+    ego_back: int = 0
+    ego_ahead: int = 0
     rom_path: str | None = None
     level_weights: tuple[float, ...] | None = field(default=None, repr=False)
 
@@ -73,7 +80,8 @@ def observation_spec(config: EnvConfig) -> tuple[str, Any, int]:
     if config.obs == "tiles":
         shape = (config.frame_stack, ROWS, COLS)
     elif config.obs == "tiles2":
-        shape = {"grid": (config.frame_stack, ROWS2, COLS2), "vec": (NUM_FEATURES,)}
+        cols = config.ego_back + config.ego_ahead if config.ego_ahead else COLS2
+        shape = {"grid": (config.frame_stack, ROWS2, cols), "vec": (NUM_FEATURES,)}
     elif config.obs == "pixels":
         shape = (config.frame_stack, PIXEL_SIZE, PIXEL_SIZE)
     else:
@@ -104,6 +112,8 @@ class MarioEnv(gym.Env):
         self.render_mode = render_mode
         self.levels: tuple[Level, ...] = parse_levels(config.levels)
         obs_type, shape, n_actions = observation_spec(config)
+        if config.ego_ahead and obs_type != "tiles2":
+            raise ValueError("ego window (ego_back/ego_ahead) is implemented for obs='tiles2' only")
         self._buttons = ACTION_SETS[config.actions]
         self.action_space = gym.spaces.Discrete(n_actions)
         if obs_type == "tiles2":
@@ -113,7 +123,7 @@ class MarioEnv(gym.Env):
                     "vec": gym.spaces.Box(-10.0, 10.0, shape["vec"], np.float32),
                 }
             )
-            frame_shape = shape["grid"]
+            frame_shape = (config.frame_stack, ROWS2, COLS2)  # full screen; cropped in _obs if ego
         else:
             high = NUM_TILE_TYPES - 1 if obs_type == "tiles" else 255
             self.observation_space = gym.spaces.Box(0, high, shape, np.uint8)
@@ -252,8 +262,20 @@ class MarioEnv(gym.Env):
 
     def _obs(self, ram: np.ndarray):
         if self.config.obs == "tiles2":
-            return {"grid": self._frames.copy(), "vec": mario_features(ram)}
+            grid = self._frames.copy() if not self.config.ego_ahead else self._ego_window(ram)
+            return {"grid": grid, "vec": mario_features(ram)}
         return self._frames.copy()
+
+    def _ego_window(self, ram: np.ndarray) -> np.ndarray:
+        """Crop every stacked frame to the columns around Mario's current position."""
+        back, ahead = self.config.ego_back, self.config.ego_ahead
+        col = int(np.clip(smb.x_pos(ram) - smb.screen_left(ram), 0, 255)) // 8  # Mario's left cell
+        stack, rows, cols = self._frames.shape
+        padded = np.empty((stack, rows, back + cols + ahead), dtype=self._frames.dtype)
+        padded[..., :back] = SOLID2  # the left screen edge is a wall in SMB
+        padded[..., back : back + cols] = self._frames
+        padded[..., back + cols :] = EMPTY2  # beyond the right edge: not yet visible
+        return padded[..., col : col + back + ahead]  # window [col - back, col + ahead) shifted by back
 
     def _info(self, ram: np.ndarray) -> dict[str, Any]:
         x = smb.x_pos(ram)

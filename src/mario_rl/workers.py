@@ -1,16 +1,21 @@
-"""Rollout workers: one emulator per process, policy inference inside the worker.
+"""Rollout workers: one emulator per process.
 
-stable-retro allows a single emulator per process, and per-step IPC with a
-central learner (Gymnasium's AsyncVectorEnv) costs more than the emulator
-itself on small CPU machines. Each worker therefore holds a reference to the
-learner's shared-memory policy and collects a whole rollout segment locally;
-the learner only exchanges one message per worker per PPO iteration.
+stable-retro allows a single emulator per process. Two ways to pick actions:
+
+- ``WorkerPool.rollout``: each worker holds a reference to the learner's
+  shared-memory CPU policy and collects a whole rollout segment locally, so the
+  learner exchanges one message per worker per PPO iteration. Best without a GPU,
+  where per-step IPC (Gymnasium's AsyncVectorEnv) costs more than the emulator.
+- ``WorkerPool.rollout_batched``: the learner steps all workers in lock-step and
+  runs one batched forward pass per step on its own device (GPU). Workers only
+  emulate, so a larger network no longer slows down the CPU side.
 """
 
 from __future__ import annotations
 
 import traceback
 from dataclasses import dataclass, field
+from multiprocessing import connection as mp_connection
 from typing import Any
 
 import numpy as np
@@ -18,6 +23,7 @@ import torch
 import torch.multiprocessing as mp
 
 from .env import EnvConfig, MarioEnv
+from .inference import BatchedActor
 from .models import ActorCritic
 from .obs import allocate, store, to_torch
 
@@ -95,6 +101,20 @@ def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int):
                         ),
                     )
                 )  # fmt: skip
+            elif command == "begin":  # start a learner-driven (batched) rollout segment
+                if payload is not None:
+                    env.set_level_weights(payload)
+                conn.send(("ok", (obs, env.levels.index(env.level))))
+            elif command == "step":
+                obs, reward, terminated, truncated, info = env.step(payload)
+                # time-limit / stuck truncation bootstraps from the final observation's value
+                final_obs = obs if truncated and not terminated else None
+                episode = None
+                if terminated or truncated:
+                    episode = {"level": info["level"], **info["episode"]}
+                    obs, _ = env.reset()
+                level_id = env.levels.index(env.level)
+                conn.send(("ok", (obs, float(reward), terminated or truncated, final_obs, episode, level_id)))
             elif command == "evaluate":
                 jobs, greedy = payload
                 with torch.inference_mode():
@@ -143,6 +163,69 @@ class WorkerPool:
         for conn in self.conns:
             conn.send(("rollout", (num_steps, level_weights)))
         return self._gather()
+
+    def rollout_batched(
+        self, actor: BatchedActor, num_steps: int, level_weights: np.ndarray | None = None
+    ) -> list[Rollout]:
+        """Collect one segment per worker, picking actions on the learner's device.
+
+        Asynchronous dynamic batching: each iteration runs one forward pass for whichever workers
+        have reported a new observation, so a slow step (reset, cut-scene) in one worker does not
+        stall the others. The policy is fixed for the whole segment, so this is exactly on-policy.
+        """
+        n = len(self.conns)
+        for conn in self.conns:
+            conn.send(("begin", level_weights))
+        obs, level = map(list, zip(*self._gather(), strict=True))
+        buf_obs = [allocate(o, num_steps) for o in obs]
+        actions = np.empty((n, num_steps), dtype=np.int64)
+        logprobs = np.empty((n, num_steps), dtype=np.float32)
+        values = np.empty((n, num_steps), dtype=np.float32)
+        rewards = np.empty((n, num_steps), dtype=np.float32)
+        bootstrap = np.zeros((n, num_steps), dtype=np.float32)
+        dones = np.empty((n, num_steps), dtype=bool)
+        level_ids = np.empty((n, num_steps), dtype=np.int16)
+        episodes: list[list[dict]] = [[] for _ in range(n)]
+        truncated: list[tuple[int, int, Any]] = []  # (worker, step, final obs), valued at the end
+        t = [0] * n
+        index = {conn: i for i, conn in enumerate(self.conns)}
+        ready, waiting = list(range(n)), set()
+        while ready or waiting:
+            if ready:
+                a, lp, v = actor.act([obs[i] for i in ready])
+                for j, i in enumerate(ready):
+                    store(buf_obs[i], t[i], obs[i])
+                    level_ids[i, t[i]] = level[i]
+                    actions[i, t[i]], logprobs[i, t[i]], values[i, t[i]] = a[j], lp[j], v[j]
+                    self.conns[i].send(("step", int(a[j])))
+                waiting.update(ready)
+                ready = []
+            for conn in mp_connection.wait([self.conns[i] for i in waiting]):
+                i = index[conn]
+                status, payload = conn.recv()
+                if status == "error":
+                    self.close(force=True)
+                    raise RuntimeError(payload)
+                obs[i], rewards[i, t[i]], dones[i, t[i]], final, episode, level[i] = payload
+                if final is not None:
+                    truncated.append((i, t[i], final))
+                if episode is not None:
+                    episodes[i].append(episode)
+                waiting.discard(i)
+                t[i] += 1
+                if t[i] < num_steps:
+                    ready.append(i)
+        if truncated:
+            for (i, step, _), v in zip(truncated, actor.values([f for _, _, f in truncated]), strict=True):
+                bootstrap[i, step] = v
+        next_values = actor.values(obs)
+        return [
+            Rollout(
+                buf_obs[i], actions[i], logprobs[i], values[i], rewards[i], bootstrap[i], dones[i],
+                level_ids[i], float(next_values[i]), episodes[i],
+            )
+            for i in range(n)
+        ]  # fmt: skip
 
     def evaluate(self, levels, episodes_per_level: int, greedy: bool = False) -> list[dict]:
         jobs = [lv for lv in levels for _ in range(episodes_per_level)]

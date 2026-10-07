@@ -182,3 +182,66 @@ def test_end_to_end_dict_observations(tmp_path):
     model, _ = load_policy(run_dir / "latest.pt")
     assert model.obs_type == "tiles2" and model.obs_shape["vec"] == (10,)
     cli_main(["play", str(run_dir / "latest.pt"), "--level", "1-2"])
+
+
+@pytest.mark.slow
+def test_end_to_end_impala_with_augmentation(tmp_path):
+    cfg = PPOConfig(
+        run_name="tiny3", out_dir=str(tmp_path), total_steps=64, num_envs=2, num_steps=32,
+        num_minibatches=2, update_epochs=1, eval_interval=0, save_interval=64, torch_threads=1,
+        arch="impala", aug_shift=2, inference="batched",
+    )  # fmt: skip
+    run_dir = train(cfg, EnvConfig(levels=("1-1",), obs="tiles2", max_episode_steps=40))
+    model, ckpt = load_policy(run_dir / "latest.pt")
+    assert model.arch == "impala" and ckpt["ppo_config"]["aug_shift"] == 2
+    metrics = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text().splitlines()]
+    assert any("loss/aug_policy_kl" in m for m in metrics)
+
+
+def test_random_shift_moves_whole_stack_and_repeats_border():
+    import torch
+
+    from mario_rl.augment import random_shift
+
+    torch.manual_seed(0)
+    grid = torch.arange(3 * 2 * 2 * 8, dtype=torch.uint8).view(3, 2, 2, 8)
+    obs = {"grid": grid, "vec": torch.randn(3, 10)}
+    out = random_shift(obs, 3)
+    assert out["vec"] is obs["vec"]
+    for b in range(3):
+        cols = out["grid"][b, 0, 0].long() - grid[b, 0, 0, 0].long()  # column index each cell came from
+        k = int(cols[4] - 4)  # shift was -k
+        assert -3 <= k <= 3
+        assert torch.equal(cols, (torch.arange(8) + k).clamp(0, 7))
+        for s in range(2):  # every frame and row uses the same shift
+            assert torch.equal(out["grid"][b, s], grid[b, s][:, (torch.arange(8) + k).clamp(0, 7)])
+
+
+@pytest.mark.slow
+def test_batched_rollout_matches_worker_rollout_contract():
+    """Learner-side batched inference returns the same Rollout structure, on CPU too."""
+    import numpy as np
+
+    from mario_rl.env import observation_spec
+    from mario_rl.inference import BatchedActor
+    from mario_rl.models import ActorCritic
+    from mario_rl.workers import WorkerPool
+
+    env_cfg = EnvConfig(levels=("1-1", "1-2"), obs="tiles2", max_episode_steps=30)
+    obs_type, obs_shape, n_actions = observation_spec(env_cfg)
+    model = ActorCritic(obs_type, obs_shape, n_actions)
+    model.share_memory()
+    pool = WorkerPool(2, env_cfg, model, seed=0)
+    try:
+        worker_ro = pool.rollout(40)
+        batched_ro = pool.rollout_batched(BatchedActor(model), 40, np.array([0.5, 0.5]))
+    finally:
+        pool.close()
+    for a, b in zip(worker_ro, batched_ro, strict=True):
+        assert a.obs["grid"].shape == b.obs["grid"].shape and a.actions.shape == b.actions.shape
+    for ro in batched_ro:
+        assert ro.dones.any()  # 30-step time limit inside a 40-step segment
+        assert len(ro.episodes) == ro.dones.sum()
+        assert np.all(ro.bootstrap[~ro.dones] == 0) and np.any(ro.bootstrap != 0)
+        assert set(ro.level_ids.tolist()) <= {0, 1}
+        assert np.all((ro.actions >= 0) & (ro.actions < n_actions)) and np.all(ro.logprobs <= 0)

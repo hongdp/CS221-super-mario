@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import time
@@ -12,12 +13,15 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch import nn
+from torch.distributions import Categorical
 
+from .augment import random_shift
 from .env import EnvConfig, observation_spec
 from .evaluate import format_table, summarize
+from .inference import BatchedActor
 from .levels import parse_levels
 from .models import ActorCritic
-from .obs import batch_size, concat, take, to_torch
+from .obs import batch_size, concat, take, to_device, to_torch
 from .plr import LevelSampler
 from .workers import Rollout, WorkerPool
 
@@ -40,7 +44,12 @@ class PPOConfig:
     ent_coef: float = 0.01
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5  # applied separately to the actor and the critic
+    # DrAC: keep the policy and value unchanged under random horizontal grid shifts of up to
+    # aug_shift cells (0 disables), weighted by aug_coef. The PPO loss itself uses the original obs.
+    aug_shift: int = 0
+    aug_coef: float = 0.1
     shared_encoder: bool = False
+    arch: str = "default"  # encoder: "default" or "impala" (tiles2 only), see models.ARCHS
     norm_reward: bool = True  # divide rewards by the running std of discounted returns
     level_sampler: str = "uniform"  # "uniform" or "plr"
     plr_temperature: float = 0.1
@@ -52,6 +61,13 @@ class PPOConfig:
     eval_greedy: bool = False
     save_interval: int = 500_000
     torch_threads: int = 0  # 0 = all cores
+    # Where the PPO update runs: "auto" (cuda if available), "cpu" or "cuda". Rollout workers always
+    # act on CPU with the shared-memory copy of the policy.
+    device: str = "auto"
+    # Who picks actions during rollouts: "worker" (each worker runs the CPU copy of the policy),
+    # "batched" (the learner steps all workers and runs one batched forward pass on its device),
+    # or "auto" (batched when the learner is on a GPU).
+    inference: str = "auto"
     resume: str | None = None
 
 
@@ -182,10 +198,22 @@ def save_checkpoint(path: Path, model, optimizer, sampler, normalizer, cfg, env_
 def load_policy(path: str | Path) -> tuple[ActorCritic, dict]:
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
     spec = ckpt["model_spec"]
-    model = ActorCritic(spec["obs_type"], spec["obs_shape"], spec["n_actions"], spec.get("shared", False))
+    model = ActorCritic(
+        spec["obs_type"],
+        spec["obs_shape"],
+        spec["n_actions"],
+        spec.get("shared", False),
+        spec.get("arch", "default"),
+    )
     model.load_state_dict(ckpt["model"])
     model.eval()
     return model, ckpt
+
+
+def resolve_device(name: str) -> torch.device:
+    if name == "auto":
+        name = "cuda" if torch.cuda.is_available() else "cpu"
+    return torch.device(name)
 
 
 def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
@@ -206,20 +234,24 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
         )
 
     obs_type, obs_shape, n_actions = observation_spec(env_cfg)
-    model = ActorCritic(obs_type, obs_shape, n_actions, shared=cfg.shared_encoder)
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, eps=1e-5)
+    model = ActorCritic(obs_type, obs_shape, n_actions, shared=cfg.shared_encoder, arch=cfg.arch)
+    if ckpt is not None:
+        model.load_state_dict(ckpt["model"])
+    model.share_memory()  # workers read the learner's weights directly
+    # On a GPU the update runs on a separate copy whose weights are copied back after every update.
+    device = resolve_device(cfg.device)
+    learner = model if device.type == "cpu" else copy.deepcopy(model).to(device)
+    optimizer = torch.optim.Adam(learner.parameters(), lr=cfg.lr, eps=1e-5)
     train_levels = parse_levels(env_cfg.levels)
     sampler = LevelSampler(len(train_levels), cfg.level_sampler, cfg.plr_temperature, cfg.plr_staleness)
     normalizer = RewardNormalizer(cfg.num_envs, cfg.gamma)
     global_step, start_update = 0, 1
     if ckpt is not None:
-        model.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optimizer"])
         sampler.load_state_dict(ckpt["sampler"])
         if "reward_rms" in ckpt:
             normalizer.rms.load_state_dict(ckpt["reward_rms"])
         global_step, start_update = ckpt["global_step"], ckpt["update"] + 1
-    model.share_memory()  # workers read the learner's weights directly
 
     batch_size = cfg.num_envs * cfg.num_steps
     minibatch_size = batch_size // cfg.num_minibatches
@@ -227,7 +259,9 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
     eval_levels = parse_levels(cfg.eval_levels)
     logger = Logger(run_dir)
     pool = WorkerPool(cfg.num_envs, env_cfg, model, cfg.seed)
-    print(f"run dir: {run_dir}")
+    batched = cfg.inference == "batched" or (cfg.inference == "auto" and device.type != "cpu")
+    actor = BatchedActor(learner) if batched else None
+    print(f"run dir: {run_dir} (PPO update on {device}, {'batched' if batched else 'in-worker'} inference)")
     print(f"training on {len(train_levels)} levels: {' '.join(map(str, train_levels))}")
     print(f"held-out eval levels: {' '.join(map(str, eval_levels))}")
 
@@ -240,7 +274,10 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
             if cfg.anneal_lr:
                 optimizer.param_groups[0]["lr"] = cfg.lr * (1.0 - (update - 1) / num_updates)
             weights = sampler.weights() if cfg.level_sampler == "plr" else None
-            rollouts: list[Rollout] = pool.rollout(cfg.num_steps, weights)
+            if batched:
+                rollouts: list[Rollout] = pool.rollout_batched(actor, cfg.num_steps, weights)
+            else:
+                rollouts = pool.rollout(cfg.num_steps, weights)
             t_rollout = time.time() - t0
             global_step += batch_size
 
@@ -253,16 +290,30 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
                 advantages.append(adv)
                 for level_id, score in plr_scores(adv, ro.dones, ro.level_ids):
                     sampler.update(level_id, score)
-            b_obs = to_torch(concat([ro.obs for ro in rollouts]))
-            b_actions = torch.from_numpy(np.concatenate([ro.actions for ro in rollouts]))
-            b_logprobs = torch.from_numpy(np.concatenate([ro.logprobs for ro in rollouts]))
+            b_obs = to_device(to_torch(concat([ro.obs for ro in rollouts])), device)
+            b_actions = torch.from_numpy(np.concatenate([ro.actions for ro in rollouts])).to(device)
+            b_logprobs = torch.from_numpy(np.concatenate([ro.logprobs for ro in rollouts])).to(device)
             b_values = torch.from_numpy(np.concatenate([ro.values for ro in rollouts]))
             b_adv = torch.from_numpy(np.concatenate(advantages))
             b_returns = b_adv + b_values
 
             stats = _ppo_update(
-                model, optimizer, cfg, b_obs, b_actions, b_logprobs, b_returns, b_adv, minibatch_size
+                learner,
+                optimizer,
+                cfg,
+                b_obs,
+                b_actions,
+                b_logprobs,
+                b_returns.to(device),
+                b_adv.to(device),
+                minibatch_size,
             )
+            if learner is not model:
+                with torch.no_grad():  # in place, so the workers' shared tensors see the new weights
+                    for dst, src in zip(
+                        model.state_dict().values(), learner.state_dict().values(), strict=True
+                    ):
+                        dst.copy_(src)
             y_pred, y_true = b_values.numpy(), b_returns.numpy()
             var_y = np.var(y_true)
             stats["explained_variance"] = float(1 - np.var(y_true - y_pred) / var_y) if var_y > 0 else 0.0
@@ -346,11 +397,15 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
 def _ppo_update(model, optimizer, cfg, b_obs, b_actions, b_logprobs, b_returns, b_adv, minibatch_size):
     n = batch_size(b_obs)
     clipfracs, approx_kls, pg_losses, v_losses, entropies = [], [], [], [], []
+    aug_pi_losses, aug_v_losses = [], []
     for _ in range(cfg.update_epochs):
-        perm = torch.randperm(n)
+        perm = torch.randperm(n, device=b_actions.device)
         for start in range(0, n, minibatch_size):
             idx = perm[start : start + minibatch_size]
-            new_logprob, entropy, new_value = model.evaluate_actions(take(b_obs, idx), b_actions[idx])
+            mb_obs = take(b_obs, idx)
+            logits, new_value = model(mb_obs)
+            dist = Categorical(logits=logits)
+            new_logprob, entropy = dist.log_prob(b_actions[idx]), dist.entropy()
             logratio = new_logprob - b_logprobs[idx]
             ratio = logratio.exp()
             with torch.no_grad():
@@ -362,6 +417,14 @@ def _ppo_update(model, optimizer, cfg, b_obs, b_actions, b_logprobs, b_returns, 
             v_loss = 0.5 * (new_value - b_returns[idx]).pow(2).mean()
             ent = entropy.mean()
             loss = pg_loss - cfg.ent_coef * ent + cfg.vf_coef * v_loss
+            if cfg.aug_shift:
+                aug_logits, aug_value = model(random_shift(mb_obs, cfg.aug_shift))
+                log_p = torch.log_softmax(logits.detach(), -1)
+                aug_pi = (log_p.exp() * (log_p - torch.log_softmax(aug_logits, -1))).sum(-1).mean()
+                aug_v = (aug_value - new_value.detach()).pow(2).mean()
+                loss = loss + cfg.aug_coef * (aug_pi + aug_v)
+                aug_pi_losses.append(aug_pi.item())
+                aug_v_losses.append(aug_v.item())
             optimizer.zero_grad()
             loss.backward()
             for group in model.parameter_groups():
@@ -370,13 +433,17 @@ def _ppo_update(model, optimizer, cfg, b_obs, b_actions, b_logprobs, b_returns, 
             pg_losses.append(pg_loss.item())
             v_losses.append(v_loss.item())
             entropies.append(ent.item())
-    return {
+    stats = {
         "loss/policy": float(np.mean(pg_losses)),
         "loss/value": float(np.mean(v_losses)),
         "entropy": float(np.mean(entropies)),
         "approx_kl": float(np.mean(approx_kls)),
         "clipfrac": float(np.mean(clipfracs)),
     }
+    if aug_pi_losses:
+        stats["loss/aug_policy_kl"] = float(np.mean(aug_pi_losses))
+        stats["loss/aug_value"] = float(np.mean(aug_v_losses))
+    return stats
 
 
 def run_evaluation(pool, cfg, train_levels, eval_levels, run_dir: Path, step: int) -> dict:

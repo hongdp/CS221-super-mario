@@ -63,6 +63,8 @@ def cmd_train(ns: argparse.Namespace) -> None:
         saved = dict(ckpt["ppo_config"])
         saved["total_steps"] = max(saved["total_steps"], ns.total_steps)
         saved["resume"] = ns.resume
+        saved["device"] = ns.device  # hardware, not a hyperparameter: may change on resume
+        saved["inference"] = ns.inference
         ppo_cfg = PPOConfig(**saved)
     else:
         env_cfg = _build(EnvConfig, ns, levels=_levels_arg(ns.levels))
