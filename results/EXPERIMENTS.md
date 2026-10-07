@@ -326,3 +326,21 @@ The fix rescued 4-3 (0 → 23%), but 1-3 stays at 0/30 (E20: 19/30). Its lift se
 only practised from level starts, and those are halved. At this budget the static-level gains (1-4 +20, 3-4 +13)
 are cancelled by the lost level-start practice. For goal A, mid-level starts are shelved. The next step is a long
 run (100M steps) with the E20 recipe on all 29 non-maze levels, since train progress was still rising 2.5-4.3 points/M at 10M.
+
+## E25: goal A long run — 29 non-maze levels, ego 4/12, 100M steps, 2 seeds
+The E20 recipe unchanged (uniform sampling, no mid-starts), trained on every non-maze level for 100M env steps (~9 h,
+two seeds side by side on one RTX 4080 + 12-core CPU). Evaluation from the level start, 10 episodes per level:
+
+| steps | completion (seed 1 / 2) | levels completed ≥1× | levels ≥50% |
+|---|---|---|---|
+| 10M | 14.1 / 10.7 | 13 / 8 | 3 / 3 |
+| 50M | 44.1 / 36.9 | 22 / 21 | 13 / 11 |
+| 100M | **66.2 / 63.8** | 24 / 26 | 21 / 19 |
+| 100M, greedy actions | **70.7 / 71.0** | 24 / 23 | 22 / 21 (13 / 16 at 100%) |
+
+All pre-registered targets were met (≥50% completion, ≥25 levels cleared at least once, stretch ≥20 levels ≥50%). Training
+length was the bottleneck for goal A, and the curve was still rising at 100M. Remaining failures: **1-2 and 4-2 are an env
+trap**. The agent runs on top of the ceiling into the warp zone (90-100% progress, never the flag), because warp pipes
+need DOWN and lead to other worlds. This is now blocked by `block_ceiling_route`. Also failing: the water levels 2-2 and
+7-2 (0%), the 6-4 castle, and the seed-dependent 8-1 and 8-3. Per-checkpoint evals: `goalA-100m/`.
+Phase 2 (running): both seeds resumed to 120M with the ceiling fix.
