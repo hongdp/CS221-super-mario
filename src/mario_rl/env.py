@@ -42,6 +42,7 @@ ACTION_SETS: dict[str, tuple[int, ...]] = {
 }  # fmt: skip
 
 PIXEL_SIZE = 84
+CEILING_ROUTE_LEVELS = frozenset({"1-2", "4-2"})  # ceiling runs lead into a warp zone
 
 
 @dataclass
@@ -73,6 +74,12 @@ class EnvConfig:
     # evaluation) load a random archived state of the chosen level with this probability. The
     # archive holds one state per (area, mid_start_bucket px) reached on the ground. A candidate
     # is kept only once Mario has survived mid_start_confirm more agent steps after it.
+    # In 1-2 and 4-2 Mario can run on top of the ceiling past the exit pipe into the warp zone.
+    # It pays more x than the exit, but it is a dead end here (warp pipes need DOWN and lead to
+    # other worlds), so agents learn to get stuck there. When enabled, staying above the screen
+    # for ceiling_steps agent steps in those levels ends the episode like a death.
+    block_ceiling_route: bool = True
+    ceiling_steps: int = 8
     mid_start_prob: float = 0.0
     mid_start_bucket: int = 256
     mid_start_confirm: int = 30
@@ -233,6 +240,12 @@ class MarioEnv(gym.Env):
         else:
             self._steps_since_progress += 1
 
+        if cfg.block_ceiling_route and str(self.level) in CEILING_ROUTE_LEVELS:
+            above = ram[smb.PLAYER_Y_VIEWPORT] == 0 and not dead and not flag
+            self._steps_above = self._steps_above + 1 if above else 0
+            if self._steps_above >= cfg.ceiling_steps:
+                dead = True  # out of bounds on the ceiling: treated as a death
+
         reward = dx_total - cfg.time_penalty * ticks
         if dead:
             reward -= cfg.death_penalty
@@ -270,6 +283,7 @@ class MarioEnv(gym.Env):
 
     # --- helpers ---------------------------------------------------------------
     def _reset_episode_state(self, ram: np.ndarray | None = None) -> None:
+        self._steps_above = 0
         self._last_buttons = 0
         self._steps = 0
         self._return = 0.0
