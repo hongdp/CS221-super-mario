@@ -308,4 +308,14 @@ transfer without trading anything away. Plot: `10m-study/families_10m.png`.
 - PLR adds nothing on top of the window (refuted) and again costs train completion. It is dropped from the recipe.
 - **Trade-off**: a narrow view is best for unseen levels (goal B), while a wider lookahead is needed to clear levels (goal A).
 
-Next: E23 (running) tests mid-level starts for goal A (clearing the whole game).
+
+# Goal A: clearing the training levels
+
+## E23: mid-level starts (`--mid-start-prob 0.5`), ego 4/12, 3 seeds
+Every episode used to start at the level start and die around 50-60% of the level, so the late sections got little
+practice. E23 started half of the training episodes from archived mid-level states. **Refuted**: training-level
+completion fell from 29.2 (E20) to 26.1, lower for every seed. Static levels gained (1-4 50→73%, 5-2 3→17%, first
+completions of 1-2, 2-2, 8-2 and 8-3), but athletic lift levels collapsed (1-3 67→0%, 4-3 17→0%). Diagnosis: after
+loading a state, reset still ran 0-30 random idle frames, and states were archived while Mario stood on lifts. Restarts on
+lift levels were therefore often doomed: death within 40 steps of a 1-3 restart was 41% as trained, 19% without idle
+frames, and 7% after fixing both flaws. E24 re-tests the fixed version.
