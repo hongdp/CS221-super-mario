@@ -319,3 +319,10 @@ completions of 1-2, 2-2, 8-2 and 8-3), but athletic lift levels collapsed (1-3 6
 loading a state, reset still ran 0-30 random idle frames, and states were archived while Mario stood on lifts. Restarts on
 lift levels were therefore often doomed: death within 40 steps of a 1-3 restart was 41% as trained, 19% without idle
 frames, and 7% after fixing both flaws. E24 re-tests the fixed version.
+
+## E24: fixed mid-level starts, 3 seeds
+Same as E23 with both flaws fixed. **Refuted again**: train completion is 28.0 vs 29.2 for E20 (+4.5 / −2.7 / −5.5 per seed).
+The fix rescued 4-3 (0 → 23%), but 1-3 stays at 0/30 (E20: 19/30). Its lift sections are never archived, so they are
+only practised from level starts, and those are halved. At this budget the static-level gains (1-4 +20, 3-4 +13)
+are cancelled by the lost level-start practice. For goal A, mid-level starts are shelved. The next step is a long
+run (100M steps) with the E20 recipe on all 29 non-maze levels, since train progress was still rising 2.5-4.3 points/M at 10M.
