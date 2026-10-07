@@ -175,3 +175,30 @@ def test_ego_window_follows_mario():
                 assert (window[..., pad_slice] == value).all()
         finally:
             env._frames[:] = frames
+
+
+def test_mid_level_starts_only_for_training_resets():
+    with closing(MarioEnv(levels=("1-1",), obs="tiles2", noop_max=0, mid_start_prob=1.0)) as env:
+        env.reset(seed=0, options={"level": "1-1"})
+        start_x = None
+        for t in range(400):  # hold right + B and hop over the first goombas
+            _, _, term, trunc, info = env.step(4 if t % 12 < 6 else 3)
+            if term or trunc:
+                break
+        assert info["x_pos"] > 512
+        archive = env._archive[env.level]
+        assert (0, 1) in archive  # the 256-511 px bucket was confirmed
+        assert not info["episode"]["mid_start"]
+        _, info = env.reset()  # training reset: starts from an archived state
+        assert env._mid_start and info["x_pos"] >= 256
+        start_x = info["x_pos"]
+        _, info = env.reset(options={"level": "1-1"})  # evaluation reset: always from the start
+        assert not env._mid_start and info["x_pos"] < start_x
+
+
+def test_mid_level_starts_disabled_by_default():
+    with closing(MarioEnv(levels=("1-1",), obs="tiles2", noop_max=0)) as env:
+        env.reset(seed=0)
+        for _ in range(60):
+            env.step(1)
+        assert env._archive == {}

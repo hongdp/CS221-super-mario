@@ -327,12 +327,16 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
                 "rollout_sps": batch_size / t_rollout,
                 "reward_scale": normalizer.scale,
             }
+            # progress / completion only count episodes that started at the beginning of a level
+            full = [ep for ep in episodes if not ep.get("mid_start")]
             if episodes:
                 metrics["train/episodes"] = len(episodes)
-                metrics["train/return"] = float(np.mean([e["r"] for e in episodes]))
-                metrics["train/progress"] = float(np.mean([e["progress"] for e in episodes]))
-                metrics["train/completion"] = float(np.mean([e["flag_get"] for e in episodes]))
-                metrics["train/length"] = float(np.mean([e["l"] for e in episodes]))
+                metrics["train/mid_start_frac"] = 1.0 - len(full) / len(episodes)
+            if full:
+                metrics["train/return"] = float(np.mean([e["r"] for e in full]))
+                metrics["train/progress"] = float(np.mean([e["progress"] for e in full]))
+                metrics["train/completion"] = float(np.mean([e["flag_get"] for e in full]))
+                metrics["train/length"] = float(np.mean([e["l"] for e in full]))
             logger.log(global_step, metrics)
             if update % 10 == 0 or update == start_update:
                 print(

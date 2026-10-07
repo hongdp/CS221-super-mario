@@ -65,6 +65,13 @@ class EnvConfig:
     # the network has less layout to memorize and must act on what is near Mario.
     ego_back: int = 0
     ego_ahead: int = 0
+    # Mid-level starts: training resets (those without an explicit level option, so never
+    # evaluation) load a random archived state of the chosen level with this probability. The
+    # archive holds one state per (area, mid_start_bucket px) reached on the ground. A candidate
+    # is kept only once Mario has survived mid_start_confirm more agent steps after it.
+    mid_start_prob: float = 0.0
+    mid_start_bucket: int = 256
+    mid_start_confirm: int = 30
     rom_path: str | None = None
     level_weights: tuple[float, ...] | None = field(default=None, repr=False)
 
@@ -130,6 +137,9 @@ class MarioEnv(gym.Env):
             frame_shape = shape
         self._frames = np.zeros(frame_shape, dtype=np.uint8)
         self._weights = self._normalise(config.level_weights)
+        self._archive: dict[Level, dict[tuple[int, int], bytes]] = {}  # mid-level start states
+        self._pending: tuple[tuple[int, int], bytes, int] | None = None
+        self._mid_start = False
         self._game = smb.SMBGame(config.rom_path)
         self.level = self.levels[0]
         self._reset_episode_state()
@@ -158,6 +168,13 @@ class MarioEnv(gym.Env):
             idx = self.np_random.choice(len(self.levels), p=self._weights)
             self.level = self.levels[idx]
         self._game.load(self.level)
+        self._mid_start = False
+        archive = self._archive.get(self.level)
+        if "level" not in options and archive and self.np_random.random() < self.config.mid_start_prob:
+            keys = list(archive)
+            self._game.emu.set_state(archive[keys[int(self.np_random.integers(len(keys)))]])
+            self._mid_start = True
+        self._pending = None
         for _ in range(int(self.np_random.integers(0, self.config.noop_max + 1))):
             self._game.frame(0)
         ram = self._game.ram()
@@ -201,6 +218,8 @@ class MarioEnv(gym.Env):
 
         self._steps += 1
         x = smb.x_pos(ram)
+        if self.config.mid_start_prob:
+            self._update_archive(ram, x, alive=not dead)
         if x > self._max_x:
             self._max_x = x
             self._steps_since_progress = 0
@@ -230,6 +249,7 @@ class MarioEnv(gym.Env):
                 "progress": info["progress"],
                 "flag_get": self._flag,
                 "level_id": self.levels.index(self.level) if self.level in self.levels else -1,
+                "mid_start": self._mid_start,
             }
         return self._obs(ram), float(reward), terminated, truncated, info
 
@@ -265,6 +285,28 @@ class MarioEnv(gym.Env):
             grid = self._frames.copy() if not self.config.ego_ahead else self._ego_window(ram)
             return {"grid": grid, "vec": mario_features(ram)}
         return self._frames.copy()
+
+    def _update_archive(self, ram: np.ndarray, x: int, alive: bool) -> None:
+        """Confirm or drop the pending candidate, then propose a new one for an unseen bucket."""
+        if self._pending is not None:
+            if not alive:
+                self._pending = None
+            else:
+                key, state, left = self._pending
+                self._pending = (key, state, left - 1) if left > 1 else None
+                if left <= 1:
+                    self._archive.setdefault(self.level, {}).setdefault(key, state)
+            return
+        key = (int(ram[smb.AREA]), x // self.config.mid_start_bucket)
+        if (
+            alive
+            and key[1] > 0
+            and key not in self._archive.get(self.level, {})
+            and ram[smb.PLAYER_FLOAT_STATE] == 0  # standing or running on the ground
+            and ram[smb.PLAYER_Y_VIEWPORT] == 1
+            and not smb.is_busy(ram)
+        ):
+            self._pending = (key, self._game.emu.get_state(), self.config.mid_start_confirm)
 
     def _ego_window(self, ram: np.ndarray) -> np.ndarray:
         """Crop every stacked frame to the columns around Mario's current position."""
