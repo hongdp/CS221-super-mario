@@ -1,0 +1,1122 @@
+[
+ {
+  "level": "2-1",
+  "ep": 0,
+  "cause": "enemy/hazard",
+  "progress": 0.5,
+  "x": 1649,
+  "steps": 192
+ },
+ {
+  "level": "2-1",
+  "ep": 1,
+  "cause": "enemy/hazard",
+  "progress": 0.184,
+  "x": 608,
+  "steps": 68
+ },
+ {
+  "level": "2-1",
+  "ep": 2,
+  "cause": "enemy/hazard",
+  "progress": 0.594,
+  "x": 1959,
+  "steps": 199
+ },
+ {
+  "level": "2-1",
+  "ep": 3,
+  "cause": "enemy/hazard",
+  "progress": 0.499,
+  "x": 1646,
+  "steps": 161
+ },
+ {
+  "level": "2-1",
+  "ep": 4,
+  "cause": "enemy/hazard",
+  "progress": 0.203,
+  "x": 669,
+  "steps": 56
+ },
+ {
+  "level": "2-1",
+  "ep": 5,
+  "cause": "enemy/hazard",
+  "progress": 0.283,
+  "x": 932,
+  "steps": 104
+ },
+ {
+  "level": "2-1",
+  "ep": 6,
+  "cause": "enemy/hazard",
+  "progress": 0.592,
+  "x": 1952,
+  "steps": 209
+ },
+ {
+  "level": "2-1",
+  "ep": 7,
+  "cause": "stuck",
+  "progress": 0.626,
+  "x": 2066,
+  "steps": 543
+ },
+ {
+  "level": "2-1",
+  "ep": 8,
+  "cause": "enemy/hazard",
+  "progress": 0.359,
+  "x": 1185,
+  "steps": 147
+ },
+ {
+  "level": "2-1",
+  "ep": 9,
+  "cause": "enemy/hazard",
+  "progress": 0.277,
+  "x": 915,
+  "steps": 100
+ },
+ {
+  "level": "2-1",
+  "ep": 10,
+  "cause": "enemy/hazard",
+  "progress": 0.223,
+  "x": 737,
+  "steps": 62
+ },
+ {
+  "level": "2-1",
+  "ep": 11,
+  "cause": "enemy/hazard",
+  "progress": 0.203,
+  "x": 669,
+  "steps": 56
+ },
+ {
+  "level": "2-1",
+  "ep": 12,
+  "cause": "enemy/hazard",
+  "progress": 0.278,
+  "x": 917,
+  "steps": 112
+ },
+ {
+  "level": "2-1",
+  "ep": 13,
+  "cause": "enemy/hazard",
+  "progress": 0.143,
+  "x": 471,
+  "steps": 40
+ },
+ {
+  "level": "2-1",
+  "ep": 14,
+  "cause": "enemy/hazard",
+  "progress": 0.5,
+  "x": 1650,
+  "steps": 159
+ },
+ {
+  "level": "2-1",
+  "ep": 15,
+  "cause": "enemy/hazard",
+  "progress": 0.247,
+  "x": 814,
+  "steps": 81
+ },
+ {
+  "level": "2-1",
+  "ep": 16,
+  "cause": "pit",
+  "progress": 0.526,
+  "x": 1734,
+  "steps": 177
+ },
+ {
+  "level": "2-1",
+  "ep": 17,
+  "cause": "enemy/hazard",
+  "progress": 0.33,
+  "x": 1089,
+  "steps": 113
+ },
+ {
+  "level": "2-1",
+  "ep": 18,
+  "cause": "stuck",
+  "progress": 0.355,
+  "x": 1170,
+  "steps": 410
+ },
+ {
+  "level": "2-1",
+  "ep": 19,
+  "cause": "enemy/hazard",
+  "progress": 0.499,
+  "x": 1646,
+  "steps": 232
+ },
+ {
+  "level": "3-3",
+  "ep": 0,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 468,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 1,
+  "cause": "pit",
+  "progress": 0.186,
+  "x": 464,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 2,
+  "cause": "pit",
+  "progress": 0.183,
+  "x": 456,
+  "steps": 38
+ },
+ {
+  "level": "3-3",
+  "ep": 3,
+  "cause": "pit",
+  "progress": 0.183,
+  "x": 456,
+  "steps": 38
+ },
+ {
+  "level": "3-3",
+  "ep": 4,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 468,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 5,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 468,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 6,
+  "cause": "pit",
+  "progress": 0.186,
+  "x": 464,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 7,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 468,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 8,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 468,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 9,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 468,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 10,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 466,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 11,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 466,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 12,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 468,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 13,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 468,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 14,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 468,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 15,
+  "cause": "pit",
+  "progress": 0.183,
+  "x": 456,
+  "steps": 38
+ },
+ {
+  "level": "3-3",
+  "ep": 16,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 468,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 17,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 468,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 18,
+  "cause": "pit",
+  "progress": 0.187,
+  "x": 468,
+  "steps": 39
+ },
+ {
+  "level": "3-3",
+  "ep": 19,
+  "cause": "pit",
+  "progress": 0.181,
+  "x": 451,
+  "steps": 42
+ },
+ {
+  "level": "4-2",
+  "ep": 0,
+  "cause": "enemy/hazard",
+  "progress": 0.214,
+  "x": 700,
+  "steps": 76
+ },
+ {
+  "level": "4-2",
+  "ep": 1,
+  "cause": "pit",
+  "progress": 0.08,
+  "x": 260,
+  "steps": 26
+ },
+ {
+  "level": "4-2",
+  "ep": 2,
+  "cause": "enemy/hazard",
+  "progress": 0.382,
+  "x": 1247,
+  "steps": 139
+ },
+ {
+  "level": "4-2",
+  "ep": 3,
+  "cause": "pit",
+  "progress": 0.081,
+  "x": 266,
+  "steps": 28
+ },
+ {
+  "level": "4-2",
+  "ep": 4,
+  "cause": "pit",
+  "progress": 0.081,
+  "x": 264,
+  "steps": 27
+ },
+ {
+  "level": "4-2",
+  "ep": 5,
+  "cause": "pit",
+  "progress": 0.08,
+  "x": 261,
+  "steps": 28
+ },
+ {
+  "level": "4-2",
+  "ep": 6,
+  "cause": "pit",
+  "progress": 0.081,
+  "x": 265,
+  "steps": 26
+ },
+ {
+  "level": "4-2",
+  "ep": 7,
+  "cause": "enemy/hazard",
+  "progress": 0.214,
+  "x": 698,
+  "steps": 72
+ },
+ {
+  "level": "4-2",
+  "ep": 8,
+  "cause": "pit",
+  "progress": 0.297,
+  "x": 969,
+  "steps": 99
+ },
+ {
+  "level": "4-2",
+  "ep": 9,
+  "cause": "pit",
+  "progress": 0.106,
+  "x": 346,
+  "steps": 29
+ },
+ {
+  "level": "4-2",
+  "ep": 10,
+  "cause": "pit",
+  "progress": 0.106,
+  "x": 345,
+  "steps": 29
+ },
+ {
+  "level": "4-2",
+  "ep": 11,
+  "cause": "pit",
+  "progress": 0.08,
+  "x": 261,
+  "steps": 29
+ },
+ {
+  "level": "4-2",
+  "ep": 12,
+  "cause": "pit",
+  "progress": 0.079,
+  "x": 259,
+  "steps": 26
+ },
+ {
+  "level": "4-2",
+  "ep": 13,
+  "cause": "pit",
+  "progress": 0.081,
+  "x": 265,
+  "steps": 30
+ },
+ {
+  "level": "4-2",
+  "ep": 14,
+  "cause": "enemy/hazard",
+  "progress": 0.378,
+  "x": 1234,
+  "steps": 204
+ },
+ {
+  "level": "4-2",
+  "ep": 15,
+  "cause": "pit",
+  "progress": 0.081,
+  "x": 264,
+  "steps": 26
+ },
+ {
+  "level": "4-2",
+  "ep": 16,
+  "cause": "enemy/hazard",
+  "progress": 0.382,
+  "x": 1246,
+  "steps": 122
+ },
+ {
+  "level": "4-2",
+  "ep": 17,
+  "cause": "enemy/hazard",
+  "progress": 0.378,
+  "x": 1234,
+  "steps": 190
+ },
+ {
+  "level": "4-2",
+  "ep": 18,
+  "cause": "pit",
+  "progress": 0.081,
+  "x": 264,
+  "steps": 25
+ },
+ {
+  "level": "4-2",
+  "ep": 19,
+  "cause": "pit",
+  "progress": 0.081,
+  "x": 266,
+  "steps": 27
+ },
+ {
+  "level": "5-1",
+  "ep": 0,
+  "cause": "enemy/hazard",
+  "progress": 0.058,
+  "x": 189,
+  "steps": 16
+ },
+ {
+  "level": "5-1",
+  "ep": 1,
+  "cause": "enemy/hazard",
+  "progress": 0.214,
+  "x": 702,
+  "steps": 67
+ },
+ {
+  "level": "5-1",
+  "ep": 2,
+  "cause": "enemy/hazard",
+  "progress": 0.217,
+  "x": 713,
+  "steps": 71
+ },
+ {
+  "level": "5-1",
+  "ep": 3,
+  "cause": "enemy/hazard",
+  "progress": 0.058,
+  "x": 191,
+  "steps": 16
+ },
+ {
+  "level": "5-1",
+  "ep": 4,
+  "cause": "enemy/hazard",
+  "progress": 0.857,
+  "x": 2813,
+  "steps": 318
+ },
+ {
+  "level": "5-1",
+  "ep": 5,
+  "cause": "pit",
+  "progress": 0.246,
+  "x": 809,
+  "steps": 89
+ },
+ {
+  "level": "5-1",
+  "ep": 6,
+  "cause": "enemy/hazard",
+  "progress": 0.215,
+  "x": 704,
+  "steps": 73
+ },
+ {
+  "level": "5-1",
+  "ep": 7,
+  "cause": "pit",
+  "progress": 0.563,
+  "x": 1847,
+  "steps": 194
+ },
+ {
+  "level": "5-1",
+  "ep": 8,
+  "cause": "enemy/hazard",
+  "progress": 0.218,
+  "x": 715,
+  "steps": 71
+ },
+ {
+  "level": "5-1",
+  "ep": 9,
+  "cause": "enemy/hazard",
+  "progress": 0.308,
+  "x": 1010,
+  "steps": 109
+ },
+ {
+  "level": "5-1",
+  "ep": 10,
+  "cause": "pit",
+  "progress": 0.246,
+  "x": 806,
+  "steps": 93
+ },
+ {
+  "level": "5-1",
+  "ep": 11,
+  "cause": "pit",
+  "progress": 0.247,
+  "x": 810,
+  "steps": 92
+ },
+ {
+  "level": "5-1",
+  "ep": 12,
+  "cause": "pit",
+  "progress": 0.563,
+  "x": 1848,
+  "steps": 197
+ },
+ {
+  "level": "5-1",
+  "ep": 13,
+  "cause": "pit",
+  "progress": 0.752,
+  "x": 2467,
+  "steps": 251
+ },
+ {
+  "level": "5-1",
+  "ep": 14,
+  "cause": "enemy/hazard",
+  "progress": 0.215,
+  "x": 704,
+  "steps": 70
+ },
+ {
+  "level": "5-1",
+  "ep": 15,
+  "cause": "pit",
+  "progress": 0.758,
+  "x": 2488,
+  "steps": 299
+ },
+ {
+  "level": "5-1",
+  "ep": 16,
+  "cause": "pit",
+  "progress": 0.563,
+  "x": 1848,
+  "steps": 197
+ },
+ {
+  "level": "5-1",
+  "ep": 17,
+  "cause": "enemy/hazard",
+  "progress": 0.215,
+  "x": 705,
+  "steps": 68
+ },
+ {
+  "level": "5-1",
+  "ep": 18,
+  "cause": "enemy/hazard",
+  "progress": 0.215,
+  "x": 707,
+  "steps": 69
+ },
+ {
+  "level": "5-1",
+  "ep": 19,
+  "cause": "enemy/hazard",
+  "progress": 0.307,
+  "x": 1009,
+  "steps": 99
+ },
+ {
+  "level": "6-2",
+  "ep": 0,
+  "cause": "enemy/hazard",
+  "progress": 0.185,
+  "x": 657,
+  "steps": 95
+ },
+ {
+  "level": "6-2",
+  "ep": 1,
+  "cause": "enemy/hazard",
+  "progress": 0.296,
+  "x": 1052,
+  "steps": 186
+ },
+ {
+  "level": "6-2",
+  "ep": 2,
+  "cause": "enemy/hazard",
+  "progress": 0.122,
+  "x": 434,
+  "steps": 158
+ },
+ {
+  "level": "6-2",
+  "ep": 3,
+  "cause": "enemy/hazard",
+  "progress": 0.248,
+  "x": 882,
+  "steps": 383
+ },
+ {
+  "level": "6-2",
+  "ep": 4,
+  "cause": "enemy/hazard",
+  "progress": 0.122,
+  "x": 434,
+  "steps": 158
+ },
+ {
+  "level": "6-2",
+  "ep": 5,
+  "cause": "enemy/hazard",
+  "progress": 0.249,
+  "x": 882,
+  "steps": 308
+ },
+ {
+  "level": "6-2",
+  "ep": 6,
+  "cause": "stuck",
+  "progress": 0.248,
+  "x": 882,
+  "steps": 474
+ },
+ {
+  "level": "6-2",
+  "ep": 7,
+  "cause": "enemy/hazard",
+  "progress": 0.233,
+  "x": 827,
+  "steps": 97
+ },
+ {
+  "level": "6-2",
+  "ep": 8,
+  "cause": "enemy/hazard",
+  "progress": 0.255,
+  "x": 906,
+  "steps": 135
+ },
+ {
+  "level": "6-2",
+  "ep": 9,
+  "cause": "enemy/hazard",
+  "progress": 0.183,
+  "x": 651,
+  "steps": 84
+ },
+ {
+  "level": "6-2",
+  "ep": 10,
+  "cause": "enemy/hazard",
+  "progress": 0.207,
+  "x": 734,
+  "steps": 113
+ },
+ {
+  "level": "6-2",
+  "ep": 11,
+  "cause": "enemy/hazard",
+  "progress": 0.248,
+  "x": 882,
+  "steps": 193
+ },
+ {
+  "level": "6-2",
+  "ep": 12,
+  "cause": "stuck",
+  "progress": 0.248,
+  "x": 882,
+  "steps": 462
+ },
+ {
+  "level": "6-2",
+  "ep": 13,
+  "cause": "enemy/hazard",
+  "progress": 0.232,
+  "x": 826,
+  "steps": 98
+ },
+ {
+  "level": "6-2",
+  "ep": 14,
+  "cause": "enemy/hazard",
+  "progress": 0.232,
+  "x": 825,
+  "steps": 156
+ },
+ {
+  "level": "6-2",
+  "ep": 15,
+  "cause": "enemy/hazard",
+  "progress": 0.228,
+  "x": 811,
+  "steps": 105
+ },
+ {
+  "level": "6-2",
+  "ep": 16,
+  "cause": "stuck",
+  "progress": 0.248,
+  "x": 882,
+  "steps": 356
+ },
+ {
+  "level": "6-2",
+  "ep": 17,
+  "cause": "enemy/hazard",
+  "progress": 0.232,
+  "x": 825,
+  "steps": 126
+ },
+ {
+  "level": "6-2",
+  "ep": 18,
+  "cause": "enemy/hazard",
+  "progress": 0.234,
+  "x": 830,
+  "steps": 104
+ },
+ {
+  "level": "6-2",
+  "ep": 19,
+  "cause": "enemy/hazard",
+  "progress": 0.158,
+  "x": 562,
+  "steps": 89
+ },
+ {
+  "level": "6-4",
+  "ep": 0,
+  "cause": "enemy/hazard",
+  "progress": 0.484,
+  "x": 1175,
+  "steps": 101
+ },
+ {
+  "level": "6-4",
+  "ep": 1,
+  "cause": "enemy/hazard",
+  "progress": 0.134,
+  "x": 325,
+  "steps": 29
+ },
+ {
+  "level": "6-4",
+  "ep": 2,
+  "cause": "enemy/hazard",
+  "progress": 0.134,
+  "x": 325,
+  "steps": 29
+ },
+ {
+  "level": "6-4",
+  "ep": 3,
+  "cause": "enemy/hazard",
+  "progress": 0.221,
+  "x": 538,
+  "steps": 49
+ },
+ {
+  "level": "6-4",
+  "ep": 4,
+  "cause": "enemy/hazard",
+  "progress": 0.134,
+  "x": 326,
+  "steps": 29
+ },
+ {
+  "level": "6-4",
+  "ep": 5,
+  "cause": "enemy/hazard",
+  "progress": 0.485,
+  "x": 1179,
+  "steps": 103
+ },
+ {
+  "level": "6-4",
+  "ep": 6,
+  "cause": "enemy/hazard",
+  "progress": 0.133,
+  "x": 323,
+  "steps": 29
+ },
+ {
+  "level": "6-4",
+  "ep": 7,
+  "cause": "enemy/hazard",
+  "progress": 0.481,
+  "x": 1169,
+  "steps": 105
+ },
+ {
+  "level": "6-4",
+  "ep": 8,
+  "cause": "enemy/hazard",
+  "progress": 0.134,
+  "x": 325,
+  "steps": 29
+ },
+ {
+  "level": "6-4",
+  "ep": 9,
+  "cause": "enemy/hazard",
+  "progress": 0.134,
+  "x": 325,
+  "steps": 29
+ },
+ {
+  "level": "6-4",
+  "ep": 10,
+  "cause": "enemy/hazard",
+  "progress": 0.481,
+  "x": 1169,
+  "steps": 101
+ },
+ {
+  "level": "6-4",
+  "ep": 11,
+  "cause": "enemy/hazard",
+  "progress": 0.134,
+  "x": 325,
+  "steps": 35
+ },
+ {
+  "level": "6-4",
+  "ep": 12,
+  "cause": "enemy/hazard",
+  "progress": 0.134,
+  "x": 326,
+  "steps": 30
+ },
+ {
+  "level": "6-4",
+  "ep": 13,
+  "cause": "enemy/hazard",
+  "progress": 0.221,
+  "x": 538,
+  "steps": 50
+ },
+ {
+  "level": "6-4",
+  "ep": 14,
+  "cause": "enemy/hazard",
+  "progress": 0.393,
+  "x": 955,
+  "steps": 83
+ },
+ {
+  "level": "6-4",
+  "ep": 15,
+  "cause": "enemy/hazard",
+  "progress": 0.221,
+  "x": 537,
+  "steps": 47
+ },
+ {
+  "level": "6-4",
+  "ep": 16,
+  "cause": "enemy/hazard",
+  "progress": 0.134,
+  "x": 325,
+  "steps": 29
+ },
+ {
+  "level": "6-4",
+  "ep": 17,
+  "cause": "enemy/hazard",
+  "progress": 0.482,
+  "x": 1171,
+  "steps": 103
+ },
+ {
+  "level": "6-4",
+  "ep": 18,
+  "cause": "enemy/hazard",
+  "progress": 0.483,
+  "x": 1173,
+  "steps": 100
+ },
+ {
+  "level": "6-4",
+  "ep": 19,
+  "cause": "enemy/hazard",
+  "progress": 0.214,
+  "x": 520,
+  "steps": 45
+ },
+ {
+  "level": "7-1",
+  "ep": 0,
+  "cause": "enemy/hazard",
+  "progress": 0.413,
+  "x": 1222,
+  "steps": 145
+ },
+ {
+  "level": "7-1",
+  "ep": 1,
+  "cause": "enemy/hazard",
+  "progress": 0.296,
+  "x": 878,
+  "steps": 74
+ },
+ {
+  "level": "7-1",
+  "ep": 2,
+  "cause": "enemy/hazard",
+  "progress": 0.588,
+  "x": 1742,
+  "steps": 179
+ },
+ {
+  "level": "7-1",
+  "ep": 3,
+  "cause": "enemy/hazard",
+  "progress": 0.273,
+  "x": 808,
+  "steps": 68
+ },
+ {
+  "level": "7-1",
+  "ep": 4,
+  "cause": "enemy/hazard",
+  "progress": 0.185,
+  "x": 548,
+  "steps": 46
+ },
+ {
+  "level": "7-1",
+  "ep": 5,
+  "cause": "enemy/hazard",
+  "progress": 0.339,
+  "x": 1003,
+  "steps": 94
+ },
+ {
+  "level": "7-1",
+  "ep": 6,
+  "cause": "flag",
+  "progress": 1.0,
+  "x": 2857,
+  "steps": 383
+ },
+ {
+  "level": "7-1",
+  "ep": 7,
+  "cause": "enemy/hazard",
+  "progress": 0.127,
+  "x": 377,
+  "steps": 32
+ },
+ {
+  "level": "7-1",
+  "ep": 8,
+  "cause": "enemy/hazard",
+  "progress": 0.127,
+  "x": 377,
+  "steps": 32
+ },
+ {
+  "level": "7-1",
+  "ep": 9,
+  "cause": "enemy/hazard",
+  "progress": 0.274,
+  "x": 812,
+  "steps": 68
+ },
+ {
+  "level": "7-1",
+  "ep": 10,
+  "cause": "enemy/hazard",
+  "progress": 0.691,
+  "x": 2048,
+  "steps": 230
+ },
+ {
+  "level": "7-1",
+  "ep": 11,
+  "cause": "enemy/hazard",
+  "progress": 0.482,
+  "x": 1427,
+  "steps": 168
+ },
+ {
+  "level": "7-1",
+  "ep": 12,
+  "cause": "enemy/hazard",
+  "progress": 0.241,
+  "x": 713,
+  "steps": 60
+ },
+ {
+  "level": "7-1",
+  "ep": 13,
+  "cause": "enemy/hazard",
+  "progress": 0.757,
+  "x": 2242,
+  "steps": 302
+ },
+ {
+  "level": "7-1",
+  "ep": 14,
+  "cause": "enemy/hazard",
+  "progress": 0.127,
+  "x": 375,
+  "steps": 32
+ },
+ {
+  "level": "7-1",
+  "ep": 15,
+  "cause": "enemy/hazard",
+  "progress": 0.273,
+  "x": 809,
+  "steps": 68
+ },
+ {
+  "level": "7-1",
+  "ep": 16,
+  "cause": "enemy/hazard",
+  "progress": 0.244,
+  "x": 722,
+  "steps": 96
+ },
+ {
+  "level": "7-1",
+  "ep": 17,
+  "cause": "enemy/hazard",
+  "progress": 0.337,
+  "x": 999,
+  "steps": 98
+ },
+ {
+  "level": "7-1",
+  "ep": 18,
+  "cause": "enemy/hazard",
+  "progress": 0.338,
+  "x": 1001,
+  "steps": 96
+ },
+ {
+  "level": "7-1",
+  "ep": 19,
+  "cause": "enemy/hazard",
+  "progress": 0.296,
+  "x": 878,
+  "steps": 74
+ }
+]

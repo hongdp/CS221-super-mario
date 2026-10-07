@@ -216,3 +216,78 @@ palette jitter) to compete, if they can at all.
 
 Plot: `comparisons/obs_3m.png`. No variant has completed a held-out level yet. The biggest
 remaining problem is generalization from only 22 training levels.
+
+# 10M-step study (E11-E20), 2026-10-05/06
+
+All runs: `tiles2`, 8 envs × 256 steps, 10M env steps, every 1M checkpoint re-evaluated with 10 stochastic
+episodes per level. "Held-out late" = mean held-out progress over the 6-10M checkpoints, which smooths the ~2-point
+noise of single checkpoints. Per-checkpoint evals and configs are in `10m-study/<run>/`. Full per-run records
+(purpose, pre-registered criteria, progress) were kept locally in `experiments/` (gitignored).
+From E12's second half on, the PPO update runs on the GPU (`--device`). From E15 on, actions are also chosen on the
+GPU (`--inference batched`). A 100-150k-step A/B showed matching learning curves for both changes.
+
+## E11: tiles2 uniform to 10M — does held-out keep rising?
+No. Held-out plateaus at 20-24% from 2M on, while train progress climbs from 33% to 68%, so the gap grows from 13 to
+47 points. Longer training only adds memorization. (E9's apparent "still rising" at 3M was noise.)
+
+## E12, E15, E16: Prioritized Level Replay (β=0.1) vs uniform, 3 seeds
+
+| seed | uniform held-out late | PLR held-out late | Δ |
+|---|---|---|---|
+| 1 (E11 / E12) | 20.3 | 28.0 | +7.7 |
+| 2 (E15 / E16) | 21.8 | 22.0 | +0.1 |
+| 3 (E15 / E16) | 22.3 | 23.3 | +1.1 |
+| mean | 21.5 ± 1.0 | 24.4 ± 3.2 | +2.95 |
+
+A small, consistent gain (pre-registered bar: +3). E12's +7.7 was a lucky seed. PLR costs ~3 points of train
+completion. At β=0.1 PLR is near-greedy: rank^-10 puts ~90% of samples on one level.
+
+## E13: DrAC random-shift augmentation (±4 cells)
+Held-out late 23.3 vs 20.3 (seed 1), mostly from the held-out castle 6-4 (~20 → 30-45%). Train completion went up
+(35% vs 28%). The policy became shift-robust but kept memorizing. Missed its bar by 0.5 points.
+
+## E14: IMPALA-style residual encoder
+Refuted. It learns training levels much more slowly at equal steps (56% vs 68% at 10M), gives no held-out gain
+(20.4 late), and is 1.7x slower. Its smaller gap only reflects underfitting.
+
+## E17: PLR temperature (seed 1)
+β=0.1 / 0.3 / 1.0 → held-out late 28.0 / 24.1 / 26.0, all within PLR's ±3 seed spread. β=1.0 is the only soft
+setting: max level weight 24%, no level below 1%. If PLR is used, β=1.0 is the safer default.
+
+## E18: PLR + DrAC (seed 1)
+Held-out late 29.4 (PLR alone 28.0): the best single run, but +1.4 is within seed noise.
+
+## E19: held-out failure analysis — is the grid the problem?
+140 episodes of the best checkpoint on held-out levels, with screen | grid | overlay snapshots before each failure
+(`10m-study/E19-failure-analysis/`). The grid is exactly aligned, and the cause of death was visible in it in every
+inspected case. Failures cluster at single obstacles: all 20 episodes of 3-3 die in one gap, 11/20 of 4-2 in one gap,
+and piranha plants on pipes in 2-1/5-1/6-2. The agent sees these obstacles but has memorized training-level timing
+instead of learning obstacle skills. One encoding flaw: classes are exclusive, so an object overwrites terrain (a
+piranha erases the solid pipe top). Power-ups and ?-blocks are not represented (by design).
+
+## E20: egocentric window (4 cells behind / 12 ahead of Mario), uniform, 3 seeds
+Hypothesis from E19: the full-screen grid gives the network enough layout to fingerprint its position, and a
+Mario-anchored window removes that while keeping what the decision needs.
+
+| seed | full screen held-out late | ego held-out late | Δ |
+|---|---|---|---|
+| 1 | 20.3 | 26.2 | +5.8 |
+| 2 | 21.8 | 26.9 | +5.0 |
+| 3 | 22.3 | 23.3 | +1.0 |
+| mean | 21.5 ± 1.0 | **25.4 ± 1.9** | **+3.95** |
+
+Supported, meeting every pre-registered criterion. Train progress is unchanged (62.6 vs 63.9), so the gap shrinks from 42 to
+37 points. Gains are broad (2-1 25→32, 3-3 18→26, 6-4 16→21, 7-1 34→39). This is the first intervention that improves
+transfer without trading anything away. Plot: `10m-study/families_10m.png`.
+
+## Summary
+
+| intervention (vs full-screen uniform) | held-out late | train cost | seeds |
+|---|---|---|---|
+| longer training (3M → 10M) | no gain | — | 1 |
+| PLR β=0.1 | +2.95 | −3 pts completion | 3 |
+| DrAC shift | +3.0 | none (train up) | 1 |
+| IMPALA encoder | +0.1 | −12 pts progress | 1 |
+| **egocentric window 4/12** | **+3.95** | **none** | **3** |
+
+Next (running): window-size ablation (2/8, 6/16) and ego + PLR β=1.0, 3 seeds each.

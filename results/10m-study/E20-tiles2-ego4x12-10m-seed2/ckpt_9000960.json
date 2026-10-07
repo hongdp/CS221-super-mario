@@ -1,0 +1,219 @@
+{
+  "checkpoint": "experiments/E20-tiles2-ego4x12-10m-seed2_20261006_002034/ckpt_9000960.pt",
+  "global_step": 9000960,
+  "test": {
+    "progress": 0.2678822595024107,
+    "completion": 0.0,
+    "levels": {
+      "2-1": {
+        "progress": 0.23247422680412372,
+        "completion": 0.0,
+        "return": 66.85999999999999,
+        "length": 190.4,
+        "episodes": 10
+      },
+      "3-3": {
+        "progress": 0.29887910328262607,
+        "completion": 0.0,
+        "return": 66.59000000000006,
+        "length": 78.9,
+        "episodes": 10
+      },
+      "4-2": {
+        "progress": 0.2177893447642376,
+        "completion": 0.0,
+        "return": 63.100000000000044,
+        "length": 76.7,
+        "episodes": 10
+      },
+      "5-1": {
+        "progress": 0.3790371724558196,
+        "completion": 0.0,
+        "return": 115.2799999999999,
+        "length": 131.2,
+        "episodes": 10
+      },
+      "6-2": {
+        "progress": 0.12011817670230726,
+        "completion": 0.0,
+        "return": 35.200000000000024,
+        "length": 64.2,
+        "episodes": 10
+      },
+      "6-4": {
+        "progress": 0.2883902840675175,
+        "completion": 0.0,
+        "return": 62.37999999999998,
+        "length": 59.6,
+        "episodes": 10
+      },
+      "7-1": {
+        "progress": 0.3384875084402431,
+        "completion": 0.0,
+        "return": 91.92000000000003,
+        "length": 92.9,
+        "episodes": 10
+      }
+    }
+  },
+  "train": {
+    "progress": 0.651305330978367,
+    "completion": 0.24545454545454548,
+    "levels": {
+      "1-1": {
+        "progress": 0.7758113900796081,
+        "completion": 0.5,
+        "return": 240.40999999999912,
+        "length": 261.5,
+        "episodes": 10
+      },
+      "1-2": {
+        "progress": 0.3193202694427434,
+        "completion": 0.0,
+        "return": 95.05999999999993,
+        "length": 149.3,
+        "episodes": 10
+      },
+      "1-3": {
+        "progress": 0.8163086714399365,
+        "completion": 0.6,
+        "return": 194.17999999999955,
+        "length": 186.4,
+        "episodes": 10
+      },
+      "1-4": {
+        "progress": 0.9591358024691358,
+        "completion": 0.6,
+        "return": 216.9499999999993,
+        "length": 199.0,
+        "episodes": 10
+      },
+      "2-2": {
+        "progress": 0.505511328842621,
+        "completion": 0.0,
+        "return": 153.11999999999983,
+        "length": 275.0,
+        "episodes": 10
+      },
+      "2-3": {
+        "progress": 0.6991309071156979,
+        "completion": 0.3,
+        "return": 246.10999999999922,
+        "length": 220.2,
+        "episodes": 10
+      },
+      "2-4": {
+        "progress": 0.7320164609053498,
+        "completion": 0.2,
+        "return": 166.07999999999979,
+        "length": 162.9,
+        "episodes": 10
+      },
+      "3-1": {
+        "progress": 0.6944511825348696,
+        "completion": 0.1,
+        "return": 216.92999999999938,
+        "length": 265.1,
+        "episodes": 10
+      },
+      "3-2": {
+        "progress": 0.9802440441603718,
+        "completion": 0.9,
+        "return": 322.34999999999883,
+        "length": 293.9,
+        "episodes": 10
+      },
+      "3-4": {
+        "progress": 0.6104115226337448,
+        "completion": 0.1,
+        "return": 138.27999999999972,
+        "length": 125.8,
+        "episodes": 10
+      },
+      "4-1": {
+        "progress": 1.0,
+        "completion": 1.0,
+        "return": 354.09999999999866,
+        "length": 310.9,
+        "episodes": 10
+      },
+      "4-3": {
+        "progress": 0.5553410024650781,
+        "completion": 0.3,
+        "return": 125.77999999999983,
+        "length": 124.3,
+        "episodes": 10
+      },
+      "5-2": {
+        "progress": 0.5712553062462099,
+        "completion": 0.1,
+        "return": 178.01999999999956,
+        "length": 181.9,
+        "episodes": 10
+      },
+      "5-3": {
+        "progress": 0.46865552903739066,
+        "completion": 0.0,
+        "return": 109.25000000000003,
+        "length": 103.8,
+        "episodes": 10
+      },
+      "5-4": {
+        "progress": 0.7382873610539317,
+        "completion": 0.0,
+        "return": 169.6899999999997,
+        "length": 158.6,
+        "episodes": 10
+      },
+      "6-1": {
+        "progress": 0.8841596909207985,
+        "completion": 0.5,
+        "return": 259.43999999999915,
+        "length": 280.8,
+        "episodes": 10
+      },
+      "6-3": {
+        "progress": 0.5491285403050109,
+        "completion": 0.0,
+        "return": 141.7699999999999,
+        "length": 149.5,
+        "episodes": 10
+      },
+      "7-2": {
+        "progress": 0.3459277403551745,
+        "completion": 0.0,
+        "return": 103.02000000000001,
+        "length": 174.4,
+        "episodes": 10
+      },
+      "7-3": {
+        "progress": 0.5888375882672461,
+        "completion": 0.2,
+        "return": 206.33999999999955,
+        "length": 185.5,
+        "episodes": 10
+      },
+      "8-1": {
+        "progress": 0.5571802420673864,
+        "completion": 0.0,
+        "return": 327.47999999999894,
+        "length": 335.0,
+        "episodes": 10
+      },
+      "8-2": {
+        "progress": 0.4003376477208779,
+        "completion": 0.0,
+        "return": 132.87999999999968,
+        "length": 146.0,
+        "episodes": 10
+      },
+      "8-3": {
+        "progress": 0.5772650534608892,
+        "completion": 0.0,
+        "return": 195.22999999999956,
+        "length": 173.2,
+        "episodes": 10
+      }
+    }
+  }
+}
