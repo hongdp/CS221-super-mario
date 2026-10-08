@@ -51,7 +51,7 @@ class PPOConfig:
     shared_encoder: bool = False
     arch: str = "default"  # encoder: "default" or "impala" (tiles2 only), see models.ARCHS
     norm_reward: bool = True  # divide rewards by the running std of discounted returns
-    level_sampler: str = "uniform"  # "uniform" or "plr"
+    level_sampler: str = "uniform"  # "uniform", "plr" or "completion"
     plr_temperature: float = 0.1
     plr_staleness: float = 0.1
     eval_interval: int = 250_000  # env steps between evaluations (0 disables)
@@ -273,7 +273,7 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
             t0 = time.time()
             if cfg.anneal_lr:
                 optimizer.param_groups[0]["lr"] = cfg.lr * (1.0 - (update - 1) / num_updates)
-            weights = sampler.weights() if cfg.level_sampler == "plr" else None
+            weights = sampler.weights() if cfg.level_sampler != "uniform" else None
             if batched:
                 rollouts: list[Rollout] = pool.rollout_batched(actor, cfg.num_steps, weights)
             else:
@@ -288,8 +288,9 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
                 rew = rew + cfg.gamma * ro.bootstrap
                 adv = compute_gae(rew, ro.values, ro.dones, ro.next_value, cfg.gamma, cfg.gae_lambda)
                 advantages.append(adv)
-                for level_id, score in plr_scores(adv, ro.dones, ro.level_ids):
-                    sampler.update(level_id, score)
+                if cfg.level_sampler == "plr":
+                    for level_id, score in plr_scores(adv, ro.dones, ro.level_ids):
+                        sampler.update(level_id, score)
             b_obs = to_device(to_torch(concat([ro.obs for ro in rollouts])), device)
             b_actions = torch.from_numpy(np.concatenate([ro.actions for ro in rollouts])).to(device)
             b_logprobs = torch.from_numpy(np.concatenate([ro.logprobs for ro in rollouts])).to(device)
@@ -319,6 +320,10 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
             stats["explained_variance"] = float(1 - np.var(y_true - y_pred) / var_y) if var_y > 0 else 0.0
 
             episodes = [ep for ro in rollouts for ep in ro.episodes]
+            if cfg.level_sampler == "completion":
+                for ep in episodes:
+                    if not ep.get("mid_start") and ep.get("level_id", -1) >= 0:
+                        sampler.update_completion(ep["level_id"], bool(ep["flag_get"]))
             elapsed = time.time() - t0
             metrics = {
                 **stats,

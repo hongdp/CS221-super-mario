@@ -231,3 +231,38 @@ def test_swim_tap_turns_held_a_into_strokes(swim_tap):
             env.step(5)
         y = int(env._game.ram()[smb.PLAYER_Y])
         assert (y < 60) if swim_tap else (y > 150)
+
+
+def test_simple_down_action_set():
+    assert ACTION_SETS["simple_down"][:7] == ACTION_SETS["simple"]
+    with closing(MarioEnv(levels=("1-1",), obs="tiles2", actions="simple_down")) as env:
+        assert env.action_space.n == 8
+
+
+def test_maze_pays_only_for_new_ground():
+    """Walking a stretch again after being sent back (as a wrong maze path does) earns nothing."""
+    with closing(MarioEnv(levels=("7-4",), obs="tiles2", noop_max=0, time_penalty=0.0)) as env:
+        env.reset(seed=0, options={"level": "7-4"})
+        start = env._game.emu.get_state()
+        first = sum(env.step(RIGHT)[1] for _ in range(20))
+        env._game.emu.set_state(start)  # back to the start, as a maze loop would do
+        again = sum(env.step(RIGHT)[1] for _ in range(20))
+        assert first > 5 and again == 0
+    with closing(MarioEnv(levels=("7-4",), obs="tiles2", noop_max=0, time_penalty=0.0,
+                          maze_new_ground_reward=False)) as env:  # fmt: skip
+        env.reset(seed=0, options={"level": "7-4"})
+        start = env._game.emu.get_state()
+        first = sum(env.step(RIGHT)[1] for _ in range(20))
+        env._game.emu.set_state(start)
+        assert sum(env.step(RIGHT)[1] for _ in range(20)) > 5  # the old dx reward pays again
+
+
+def test_mid_start_levels_restricts_archive():
+    with closing(MarioEnv(levels=("1-1",), obs="tiles2", noop_max=0, mid_start_prob=1.0,
+                          mid_start_levels=("2-2",))) as env:  # fmt: skip
+        env.reset(seed=0, options={"level": "1-1"})
+        for t in range(400):
+            _, _, term, trunc, _ = env.step(4 if t % 12 < 6 else 3)
+            if term or trunc:
+                break
+        assert env._archive == {}

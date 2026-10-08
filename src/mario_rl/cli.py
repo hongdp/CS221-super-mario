@@ -42,9 +42,13 @@ def _add_dataclass_args(parser: argparse.ArgumentParser, cls, skip=()) -> None:
 
 def _build(cls, ns: argparse.Namespace, **overrides):
     values = {}
+    hints = typing.get_type_hints(cls)
     for f in dataclasses.fields(cls):
         if hasattr(ns, f.name):
-            values[f.name] = getattr(ns, f.name)
+            value = getattr(ns, f.name)
+            if typing.get_origin(hints[f.name]) is tuple and isinstance(value, str):
+                value = tuple(v for v in value.split(",") if v)  # "--opt a,b" -> ("a", "b")
+            values[f.name] = value
     values.update(overrides)
     return cls(**values)
 

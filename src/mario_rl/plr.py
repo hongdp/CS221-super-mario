@@ -1,7 +1,9 @@
-"""Level sampling: uniform or Prioritized Level Replay (Jiang et al., 2021).
+"""Level sampling: uniform, Prioritized Level Replay (Jiang et al., 2021), or completion-weighted.
 
 PLR replays levels where the agent's value predictions are most wrong (large
 average |GAE|), mixed with a staleness term so every level is revisited.
+"completion" weights each level by 0.2 + (1 - running completion rate), so
+levels the agent cannot finish yet get up to 6x the practice of solved ones.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ class LevelSampler:
         temperature: float = 0.1,
         staleness_coef: float = 0.1,
     ):
-        if strategy not in ("uniform", "plr"):
+        if strategy not in ("uniform", "plr", "completion"):
             raise ValueError(f"unknown level sampling strategy {strategy!r}")
         self.num_levels = num_levels
         self.strategy = strategy
@@ -34,10 +36,20 @@ class LevelSampler:
         self.seen[level_id] = True
         self.last_update[level_id] = self.updates
 
+    def update_completion(self, level_id: int, completed: bool, rate: float = 0.05) -> None:
+        """Running (EMA) completion rate of full-level episodes, for the "completion" strategy."""
+        self.updates += 1
+        self.scores[level_id] += rate * (float(completed) - self.scores[level_id])
+        self.seen[level_id] = True
+        self.last_update[level_id] = self.updates
+
     def weights(self) -> np.ndarray:
         n = self.num_levels
         if self.strategy == "uniform":
             return np.full(n, 1.0 / n)
+        if self.strategy == "completion":
+            w = 0.2 + (1.0 - self.scores)
+            return w / w.sum()
         if not self.seen.all():
             # Visit every level once before prioritizing.
             unseen = (~self.seen).astype(np.float64)

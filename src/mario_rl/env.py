@@ -34,6 +34,8 @@ ACTION_SETS: dict[str, tuple[int, ...]] = {
     "right_only": (0, RIGHT, RIGHT | A, RIGHT | B, RIGHT | A | B),
     # Same as gym-super-mario-bros' SIMPLE_MOVEMENT.
     "simple": (0, RIGHT, RIGHT | A, RIGHT | B, RIGHT | A | B, A, LEFT),
+    # simple + DOWN: needed to enter the pipes of the 8-4 maze.
+    "simple_down": (0, RIGHT, RIGHT | A, RIGHT | B, RIGHT | A | B, A, LEFT, DOWN),
     # Same as gym-super-mario-bros' COMPLEX_MOVEMENT.
     "complex": (
         0, RIGHT, RIGHT | A, RIGHT | B, RIGHT | A | B, A, LEFT,
@@ -43,6 +45,7 @@ ACTION_SETS: dict[str, tuple[int, ...]] = {
 
 PIXEL_SIZE = 84
 CEILING_ROUTE_LEVELS = frozenset({"1-2", "4-2"})  # ceiling runs lead into a warp zone
+MAZE_LEVELS = frozenset({"4-4", "7-4", "8-4"})  # wrong paths loop back
 
 
 @dataclass
@@ -86,6 +89,11 @@ class EnvConfig:
     swim_tap: bool = True
     ceiling_steps: int = 8
     mid_start_prob: float = 0.0
+    mid_start_levels: tuple[str, ...] = ()  # restrict mid-level starts to these levels (empty = all)
+    # Maze castles teleport Mario back on a wrong path, and walking the loop again would be paid
+    # again. When enabled, progress there is paid only for new ground: x beyond the furthest x
+    # reached in the current area (correct pipe warps forward count, loops do not).
+    maze_new_ground_reward: bool = True
     mid_start_bucket: int = 256
     mid_start_confirm: int = 30
     rom_path: str | None = None
@@ -186,7 +194,12 @@ class MarioEnv(gym.Env):
         self._game.load(self.level)
         self._mid_start = False
         archive = self._archive.get(self.level)
-        if "level" not in options and archive and self.np_random.random() < self.config.mid_start_prob:
+        if (
+            "level" not in options
+            and archive
+            and self._mid_start_allowed()
+            and self.np_random.random() < self.config.mid_start_prob
+        ):
             keys = list(archive)
             self._game.emu.set_state(archive[keys[int(self.np_random.integers(len(keys)))]])
             self._mid_start = True
@@ -210,6 +223,7 @@ class MarioEnv(gym.Env):
         dead = flag = False
         ram = None
         ceiling_level = cfg.block_ceiling_route and str(self.level) in CEILING_ROUTE_LEVELS
+        maze_level = cfg.maze_new_ground_reward and str(self.level) in MAZE_LEVELS
         for k in range(cfg.frame_skip):
             if cfg.sticky_prob and self.np_random.random() < cfg.sticky_prob:
                 pressed = self._last_buttons
@@ -228,7 +242,7 @@ class MarioEnv(gym.Env):
             dx = x - self._x_last
             # ignore teleports (pipes, sub-areas); on a ceiling-route level, running above the
             # screen earns nothing, so the dead-end ceiling route never outpays the exit pipe
-            if abs(dx) <= 8 and not (ceiling_level and ram[smb.PLAYER_Y_VIEWPORT] == 0):
+            if abs(dx) <= 8 and not maze_level and not (ceiling_level and ram[smb.PLAYER_Y_VIEWPORT] == 0):
                 dx_total += dx
             self._x_last = x
             now = smb.game_time(ram)
@@ -242,10 +256,17 @@ class MarioEnv(gym.Env):
 
         self._steps += 1
         x = smb.x_pos(ram)
-        if self.config.mid_start_prob:
+        new_ground = 0
+        if maze_level:
+            area = int(ram[smb.AREA])
+            best = self._area_max.setdefault(area, x)  # entering an area pays nothing by itself
+            new_ground = max(x - best, 0)
+            self._area_max[area] = max(best, x)
+            dx_total = new_ground
+        if self.config.mid_start_prob and self._mid_start_allowed():
             self._update_archive(ram, x, alive=not dead)
-        if x > self._max_x:
-            self._max_x = x
+        if x > self._max_x or new_ground > 0:
+            self._max_x = max(self._max_x, x)
             self._steps_since_progress = 0
         else:
             self._steps_since_progress += 1
@@ -295,6 +316,7 @@ class MarioEnv(gym.Env):
     # --- helpers ---------------------------------------------------------------
     def _reset_episode_state(self, ram: np.ndarray | None = None) -> None:
         self._steps_above = 0
+        self._area_max: dict[int, int] = {}
         self._last_buttons = 0
         self._steps = 0
         self._return = 0.0
@@ -317,6 +339,9 @@ class MarioEnv(gym.Env):
             grid = self._frames.copy() if not self.config.ego_ahead else self._ego_window(ram)
             return {"grid": grid, "vec": mario_features(ram)}
         return self._frames.copy()
+
+    def _mid_start_allowed(self) -> bool:
+        return not self.config.mid_start_levels or str(self.level) in self.config.mid_start_levels
 
     def _update_archive(self, ram: np.ndarray, x: int, alive: bool) -> None:
         """Confirm or drop the pending candidate, then propose a new one for an unseen bucket."""

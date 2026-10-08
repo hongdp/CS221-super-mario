@@ -245,3 +245,18 @@ def test_batched_rollout_matches_worker_rollout_contract():
         assert np.all(ro.bootstrap[~ro.dones] == 0) and np.any(ro.bootstrap != 0)
         assert set(ro.level_ids.tolist()) <= {0, 1}
         assert np.all((ro.actions >= 0) & (ro.actions < n_actions)) and np.all(ro.logprobs <= 0)
+
+
+def test_completion_sampler_favours_unsolved_levels():
+    from mario_rl.plr import LevelSampler
+
+    s = LevelSampler(3, "completion")
+    assert np.allclose(s.weights(), 1 / 3)
+    for _ in range(200):
+        s.update_completion(0, True)  # level 0 always cleared
+        s.update_completion(1, False)  # level 1 never
+    w = s.weights()
+    assert w[1] > 5 * w[0] and np.isclose(w.sum(), 1.0)
+    restored = LevelSampler(3, "completion")
+    restored.load_state_dict(s.state_dict())
+    assert np.allclose(restored.weights(), w)
