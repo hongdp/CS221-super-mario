@@ -46,6 +46,7 @@ ACTION_SETS: dict[str, tuple[int, ...]] = {
 PIXEL_SIZE = 84
 CEILING_ROUTE_LEVELS = frozenset({"1-2", "4-2"})  # ceiling runs lead into a warp zone
 MAZE_LEVELS = frozenset({"4-4", "7-4", "8-4"})  # wrong paths loop back
+_NOISE_BLOCK = 0x61  # hard block metatile: solid in the game and in the grid, cannot be hit
 
 
 @dataclass
@@ -94,6 +95,12 @@ class EnvConfig:
     # again. When enabled, progress there is paid only for new ground: x beyond the furthest x
     # reached in the current area (correct pipe warps forward count, loops do not).
     maze_new_ground_reward: bool = True
+    # Procedural level perturbation for training (goal B): as each 16 px column scrolls into view,
+    # with this probability add a solid block, either a floating platform 3-4 blocks above the
+    # ground or a 1-block step on it. The grid and the game's collisions both read the block
+    # buffer, so the agent sees and collides with the new block. Only empty cells with headroom
+    # are used. Like mid-level starts, this never applies to resets with an explicit level (evaluation).
+    terrain_noise: float = 0.0
     mid_start_bucket: int = 256
     mid_start_confirm: int = 30
     rom_path: str | None = None
@@ -204,6 +211,8 @@ class MarioEnv(gym.Env):
             self._game.emu.set_state(archive[keys[int(self.np_random.integers(len(keys)))]])
             self._mid_start = True
         self._pending = None
+        self._noise_active = self.config.terrain_noise > 0 and "level" not in options
+        self._noise_col: int | None = None
         # Idle frames vary enemy timing at a level start. After a mid-level load they could carry
         # Mario (e.g. on a moving lift) into a situation the archived state never survived.
         noops = 0 if self._mid_start else int(self.np_random.integers(0, self.config.noop_max + 1))
@@ -265,6 +274,8 @@ class MarioEnv(gym.Env):
             dx_total = new_ground
         if self.config.mid_start_prob and self._mid_start_allowed():
             self._update_archive(ram, x, alive=not dead)
+        if self._noise_active and not dead and not flag:
+            self._perturb_terrain(ram, x)
         if x > self._max_x or new_ground > 0:
             self._max_x = max(self._max_x, x)
             self._steps_since_progress = 0
@@ -339,6 +350,37 @@ class MarioEnv(gym.Env):
             grid = self._frames.copy() if not self.config.ego_ahead else self._ego_window(ram)
             return {"grid": grid, "vec": mario_features(ram)}
         return self._frames.copy()
+
+    def _perturb_terrain(self, ram: np.ndarray, x: int) -> None:
+        """Maybe add a block to every column that has entered the right edge of the screen."""
+        if smb.is_busy(ram):
+            return
+        right = (smb.screen_left(ram) + 255) // 16  # rightmost visible column: already rendered
+        if self._noise_col is None or not right - 16 <= self._noise_col <= right + 1:
+            self._noise_col = right + 1  # first step or an area change: start at the next column
+            return
+        last = min(right, (self.level.length - 160) // 16)  # leave the flagpole / axe area alone
+        emu = self._game.emu
+        while self._noise_col <= last:
+            col = self._noise_col
+            self._noise_col += 1
+            if abs(col * 16 - x) < 48 or self.np_random.random() >= self.config.terrain_noise:
+                continue
+            base = smb.BLOCK_BUFFER + ((col // 16) & 1) * 0xD0 + (col % 16)
+            column = [int(ram[base + 16 * r]) for r in range(13)]
+            if column[12] == 0:
+                continue  # a pit: leave it
+            ground = 12
+            while ground > 0 and column[ground - 1] != 0:
+                ground -= 1  # top of the solid run that starts at the bottom row
+            if self.np_random.random() < 0.5:
+                row = ground - int(self.np_random.integers(3, 5))  # floating platform
+                free = range(max(row - 1, 0), ground)
+            else:
+                row = ground - 1  # 1-block step
+                free = range(max(ground - 4, 0), ground)
+            if row >= 1 and all(column[r] == 0 for r in free):
+                emu.write(base + 16 * row, _NOISE_BLOCK)
 
     def _mid_start_allowed(self) -> bool:
         return not self.config.mid_start_levels or str(self.level) in self.config.mid_start_levels

@@ -266,3 +266,27 @@ def test_mid_start_levels_restricts_archive():
             if term or trunc:
                 break
         assert env._archive == {}
+
+
+def _block_buffer(env):
+    return env._game.ram()[smb.BLOCK_BUFFER : smb.BLOCK_BUFFER + 2 * 0xD0].copy()
+
+
+def test_terrain_noise_adds_blocks_only_in_training_resets():
+    from mario_rl.env import _NOISE_BLOCK
+
+    def run(options):
+        with closing(MarioEnv(levels=("1-1",), obs="tiles2", noop_max=0, terrain_noise=1.0)) as env:
+            env.reset(seed=3, options=options)
+            added = 0
+            for t in range(60):
+                before = _block_buffer(env)
+                env.step(3 if t % 14 < 10 else 4)
+                after = _block_buffer(env)
+                changed = after != before
+                # every block the noise adds is the hard block, written into a cell that was empty
+                added += int(((after == _NOISE_BLOCK) & (before == 0) & changed).sum())
+            return added
+
+    assert run(None) > 0  # training reset: the level is perturbed
+    assert run({"level": "1-1"}) == 0  # evaluation reset: the level stays clean
