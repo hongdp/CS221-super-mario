@@ -269,7 +269,7 @@ class MarioEnv(gym.Env):
         if maze_level:
             area = int(ram[smb.AREA])
             best = self._area_max.setdefault(area, x)  # entering an area pays nothing by itself
-            new_ground = max(x - best, 0)
+            new_ground = min(max(x - best, 0), 512)  # cap: a pipe warp pays well, a glitch cannot explode
             self._area_max[area] = max(best, x)
             dx_total = new_ground
         if self.config.mid_start_prob and self._mid_start_allowed():

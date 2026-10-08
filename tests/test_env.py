@@ -290,3 +290,11 @@ def test_terrain_noise_adds_blocks_only_in_training_resets():
 
     assert run(None) > 0  # training reset: the level is perturbed
     assert run({"level": "1-1"}) == 0  # evaluation reset: the level stays clean
+
+
+def test_x_pos_is_signed_left_of_the_level_start():
+    ram = np.zeros(0x800, dtype=np.uint8)
+    ram[smb.PLAYER_PAGE], ram[smb.PLAYER_X] = 0xFF, 0xFD  # page underflow: 3 px left of x = 0
+    assert smb.x_pos(ram) == -3
+    ram[smb.PLAYER_PAGE], ram[smb.PLAYER_X] = 0x12, 0x34
+    assert smb.x_pos(ram) == 0x1234
