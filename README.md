@@ -223,7 +223,9 @@ points are noise.
 Trained on all 29 non-maze levels with the same recipe for 100M steps (~9 h per seed on one GPU), the agent completes
 **66% of level attempts (71% with greedy actions)**. Training length was the bottleneck, and the curve is still rising.
 Resumed to 140M steps with an env fix for a ceiling route in 1-2/4-2 that led agents into a dead-end warp zone, it
-reaches **80% greedy completion, with 25 of 29 levels cleared at least half the time**. Water levels (2-2, 7-2) and the late castles remain the hardest. Details:
+reaches **80% greedy completion, with 25 of 29 levels cleared at least half the time**. With a swim-control fix and
+weighted sampling of the weakest levels, it reaches **85.5% at 180M (27 of 29 levels ≥ 50%)**. The water levels 2-2/7-2
+and the three maze castles are what remain. Water levels (2-2, 7-2) and the late castles remain the hardest. Details:
 [`results/EXPERIMENTS.md`](results/EXPERIMENTS.md).
 
 ### Directions to improve generalization

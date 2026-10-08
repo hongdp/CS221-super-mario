@@ -355,3 +355,26 @@ outpaid the exit pipe.
 | **140M (fix v2)** | **80.7 / 79.3** | **25 / 25** | **90 / 70** | **100 / 100** |
 
 Still below 50% (greedy): the water levels 2-2 and 7-2, the castle 6-4, and 8-1 / 7-1 (one seed each).
+
+## E26: why 2-2, 7-2 and 6-4 still fail (140M, seed 1)
+The grid is accurate in all three. **6-4**: 13/16 failures happen at the Bowser bridge (90% progress), a skill gap at one spot.
+**Water**: a control flaw. Swim strokes trigger on a new A press, but the 4-frame action repeat makes consecutive A actions
+one long hold, so holding "A" sinks Mario to the floor of 2-2 within ~20 steps unless the agent alternates A and no-op.
+Fixed by `EnvConfig.swim_tap` (default on): A is released on the last frame of each step while swimming. Land jumps are unchanged.
+
+## E25 phases 4-5 (140M → 180M)
+Phase 4 resumed with `swim_tap`. Phase 5 used weighted level sampling, weight = 0.2 + (1 − greedy completion) per level,
+which gives the weakest levels 8-11% of episodes each instead of 3.4%.
+
+| checkpoint | greedy completion (seed 1 / 2) | levels ≥50% | below 50% |
+|---|---|---|---|
+| 160M (swim_tap) | 81.4 / 81.4 | 26 / 25 | 2-2, 7-2, 8-1 (+ 6-4 seed 2) |
+| **180M (weighted)** | **87.2 / 83.8** | **27 / 26** | 2-2, 7-2 (+ 8-3 seed 2) |
+
+Targeted practice fixed 8-1 (0 → 70 / 30 → 90) and 6-4 (seed 2: 20 → 80). **The water levels stay at 0-30%** despite the swim
+fix and ~3x the practice.
+
+**Maze castles (not yet trained).** A probe with the 140M policy shows that in 7-4 every wrong path teleports Mario back
+and the walk forward is paid again, so looping farms reward until the stuck limit. The correct 8-4 route needs DOWN
+(pipes), which `simple` lacks. Clearing the mazes needs (1) a new-ground-only progress reward on maze levels and (2) an
+action set with DOWN, which means a new training run because the policy output changes.
