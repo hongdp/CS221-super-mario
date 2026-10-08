@@ -1,0 +1,17 @@
+{
+  "checkpoint": "experiments/E30-goalB-fewshot-finetune_20261008_003814/runs/s3_6-4_scratch/ckpt_26624.pt",
+  "global_step": 26624,
+  "6-4": {
+    "progress": 0.12437216961712641,
+    "completion": 0.0,
+    "levels": {
+      "6-4": {
+        "progress": 0.12437216961712641,
+        "completion": 0.0,
+        "return": 22.98,
+        "length": 37.1,
+        "episodes": 10
+      }
+    }
+  }
+}

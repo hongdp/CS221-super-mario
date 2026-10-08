@@ -378,3 +378,27 @@ fix and ~3x the practice.
 and the walk forward is paid again, so looping farms reward until the stuck limit. The correct 8-4 route needs DOWN
 (pipes), which `simple` lacks. Clearing the mazes needs (1) a new-ground-only progress reward on maze levels and (2) an
 action set with DOWN, which means a new training run because the policy output changes.
+
+# Goal B: unseen levels, continued (corrected env)
+
+## E28, E29: terrain perturbation (3 seeds each)
+E28 re-establishes the baseline under the corrected env (hammers visible, swim fix, ceiling fix): ego 2/8 window,
+held-out **28.2 ± 2.2** (E21 under the old env: 30.2 ± 1.2). E29 adds `terrain_noise 0.1`, random extra blocks (floating platforms,
+1-block steps) written into the block buffer as columns scroll in, so the agent sees and collides with them. **Refuted**:
+held-out 25.9 ± 3.1 (−2.2, worse for every seed), and train progress drops by 7. The extra blocks make training harder but are not the kind of
+hazard that kills on held-out levels (gaps, piranha plants, lifts).
+
+## E31: 16-frame history (3 seeds)
+Meant to give the policy timing information (piranha cycles take 2-3 s, while 4 frames cover 0.27 s). **Refuted**: held-out 21.5 ± 3.3
+(−6.7 vs E28, worse for every seed), worse on the piranha levels too. Across E10/E20/E21/E31, every increase in input size hurt
+transfer and every reduction helped.
+
+## E30: few-shot fine-tuning on held-out levels (pretrained E28 vs scratch, 3 seeds × 7 levels)
+| practice steps | pretrained progress / completion | scratch progress / completion |
+|---|---|---|
+| 0 | 30.0 / 2.4 | — |
+| 25k (≈ 28 min of play) | **40.5** / 3.3 | 14.3 / 0 |
+| 100k (≈ 1.9 h) | **50.8** / 7.1 (greedy 16.2) | 20.3 / 0 |
+
+The 22-level pretraining transfers. It gives a 2.5x head start in progress at every budget. But it is shallow: even after
+100k steps on a level the agent rarely clears it (best: 5-1 at 30%). Per-run evals are in `goalB/E30-fewshot/`.
