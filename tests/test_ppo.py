@@ -260,3 +260,20 @@ def test_completion_sampler_favours_unsolved_levels():
     restored = LevelSampler(3, "completion")
     restored.load_state_dict(s.state_dict())
     assert np.allclose(restored.weights(), w)
+
+
+@pytest.mark.slow
+def test_init_from_starts_a_new_run_from_pretrained_weights(tmp_path):
+    import torch
+
+    base = dict(out_dir=str(tmp_path), num_envs=2, num_steps=32, num_minibatches=2, update_epochs=1,
+                eval_interval=0, torch_threads=1)  # fmt: skip
+    env_cfg = EnvConfig(levels=("1-1",), obs="tiles2", max_episode_steps=40)
+    src = train(PPOConfig(run_name="src", total_steps=64, save_interval=64, **base), env_cfg)
+    src_weights = torch.load(src / "latest.pt", weights_only=False)["model"]
+    # a 0-step run saves the weights exactly as loaded
+    dst = train(PPOConfig(run_name="dst", total_steps=0, save_interval=64, init_from=str(src / "latest.pt"), **base),
+                EnvConfig(levels=("2-1",), obs="tiles2", max_episode_steps=40))  # fmt: skip
+    dst_ckpt = torch.load(dst / "latest.pt", weights_only=False)
+    assert dst_ckpt["global_step"] == 0
+    assert all(torch.equal(src_weights[k], dst_ckpt["model"][k]) for k in src_weights)

@@ -69,6 +69,9 @@ class PPOConfig:
     # or "auto" (batched when the learner is on a GPU).
     inference: str = "auto"
     resume: str | None = None
+    # Start a new run from the weights of this checkpoint (fresh optimizer, sampler and step
+    # counter), e.g. to fine-tune a pretrained policy on a few new levels.
+    init_from: str | None = None
 
 
 def compute_gae(
@@ -237,6 +240,11 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
     model = ActorCritic(obs_type, obs_shape, n_actions, shared=cfg.shared_encoder, arch=cfg.arch)
     if ckpt is not None:
         model.load_state_dict(ckpt["model"])
+    elif cfg.init_from:
+        source = torch.load(cfg.init_from, map_location="cpu", weights_only=False)
+        if source["model_spec"] != model.spec():
+            raise ValueError(f"--init-from {cfg.init_from}: model {source['model_spec']} != {model.spec()}")
+        model.load_state_dict(source["model"])
     model.share_memory()  # workers read the learner's weights directly
     # On a GPU the update runs on a separate copy whose weights are copied back after every update.
     device = resolve_device(cfg.device)
