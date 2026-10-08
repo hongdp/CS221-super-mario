@@ -402,3 +402,18 @@ transfer and every reduction helped.
 
 The 22-level pretraining transfers. It gives a 2.5x head start in progress at every budget. But it is shallow: even after
 100k steps on a level the agent rarely clears it (best: 5-1 at 30%). Per-run evals are in `goalB/E30-fewshot/`.
+
+## E32, E33: how far does shrinking the input help? (3 seeds each)
+| | held-out (6-10M) | Δ vs E28 per seed | train progress |
+|---|---|---|---|
+| E28: 2/8 window, 4 frames | 28.2 ± 2.2 | — | 59.9 |
+| E32: 2/8 window, 2 frames | 29.3 ± 1.3 | +2.1 / +2.6 / −1.4 | 60.5 |
+| E33: 2/6 window, 4 frames | 25.7 ± 5.0 | −7.0 / +5.5 / −6.0 | 54.1 |
+
+Both are in the pre-registered plateau band. Two frames are as good as four. A 48 px lookahead starts to hide what a jump needs. **The
+input-size lever is exhausted at ~28-29% held-out progress.**
+
+## E27: failed run (reward exploit), re-run as E27b
+The first final goal-A run was stopped at ~75M (0-9% completion). Stepping left of the 4-4 level start underflowed the x page
+byte (x ≈ 65533). The new-ground maze reward paid it (≈ 6450 in one step), and the giant returns blew up the reward normalizer. Fixed
+(`x_pos` signed, new-ground reward capped at 512 px). A scan of 14.5k past level evaluations found no contamination. E27b is the same config on the fixed code.
