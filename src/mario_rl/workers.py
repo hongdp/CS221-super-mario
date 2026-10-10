@@ -101,6 +101,10 @@ def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int):
                         ),
                     )
                 )  # fmt: skip
+            elif command == "reset_to":  # switch level now (meta-learning tasks): set weights, new episode
+                env.set_level_weights(payload)
+                obs, _ = env.reset()
+                conn.send(("ok", None))
             elif command == "begin":  # start a learner-driven (batched) rollout segment
                 if payload is not None:
                     env.set_level_weights(payload)
@@ -163,6 +167,12 @@ class WorkerPool:
         for conn in self.conns:
             conn.send(("rollout", (num_steps, level_weights)))
         return self._gather()
+
+    def reset_all(self, level_weights: np.ndarray) -> None:
+        """Start a fresh episode in every worker, sampling levels from ``level_weights`` from now on."""
+        for conn in self.conns:
+            conn.send(("reset_to", level_weights))
+        self._gather()
 
     def rollout_batched(
         self, actor: BatchedActor, num_steps: int, level_weights: np.ndarray | None = None

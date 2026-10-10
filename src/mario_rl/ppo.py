@@ -51,6 +51,11 @@ class PPOConfig:
     # Auxiliary forward model (obs="objects"): the actor's encoder also predicts the next observation
     # from (observation, action), weighted by aux_coef (0 disables). "Learn how the world works".
     aux_coef: float = 0.0
+    # Reptile meta-learning (Nichol et al., 2018): every task = one training level for meta_inner_steps
+    # env steps of PPO from the current meta-weights theta (fresh Adam moments); then
+    # theta += meta_step_size * (adapted - theta). 0 disables. Checkpoints and evaluations hold theta.
+    meta_inner_steps: int = 0
+    meta_step_size: float = 0.3
     shared_encoder: bool = False
     arch: str = "default"  # encoder: "default" or "impala" (tiles2 only), see models.ARCHS
     norm_reward: bool = True  # divide rewards by the running std of discounted returns
@@ -282,12 +287,52 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
     next_eval = (global_step // cfg.eval_interval + 1) * cfg.eval_interval if cfg.eval_interval else None
     next_save = (global_step // cfg.save_interval + 1) * cfg.save_interval
     last_eval_step = None
+
+    def eval_and_save(update: int) -> None:
+        nonlocal next_eval, next_save, last_eval_step
+        if next_eval is not None and global_step >= next_eval:
+            next_eval += cfg.eval_interval
+            logger.log(
+                global_step, run_evaluation(pool, cfg, train_levels, eval_levels, run_dir, global_step)
+            )
+            last_eval_step = global_step
+        if global_step >= next_save:
+            next_save += cfg.save_interval
+            for path in (run_dir / f"ckpt_{global_step}.pt", run_dir / "latest.pt"):
+                save_checkpoint(
+                    path, model, optimizer, sampler, normalizer, cfg, env_cfg, global_step, update
+                )
+
+    meta = cfg.meta_inner_steps > 0
+    meta_k = max(1, cfg.meta_inner_steps // batch_size)  # PPO updates per task
+    theta: list[torch.Tensor] | None = None
+    task_weights = None
+    meta_rng = np.random.default_rng(cfg.seed)
+
+    def meta_outer_step() -> None:
+        """theta += eps * (adapted - theta); the learner (and the workers' copy) then hold theta."""
+        if theta is None:
+            return
+        with torch.no_grad():
+            for param, start in zip(learner.parameters(), theta, strict=True):
+                param.copy_(start + cfg.meta_step_size * (param - start))
+        _sync(model, learner)
+
     try:
         for update in range(start_update, num_updates + 1):
             t0 = time.time()
             if cfg.anneal_lr:
                 optimizer.param_groups[0]["lr"] = cfg.lr * (1.0 - (update - 1) / num_updates)
-            weights = sampler.weights() if cfg.level_sampler != "uniform" else None
+            if meta and (update - start_update) % meta_k == 0:  # task boundary
+                meta_outer_step()
+                if theta is not None:
+                    eval_and_save(update - 1)  # evaluations and checkpoints see theta, not adapted weights
+                theta = [param.detach().clone() for param in learner.parameters()]
+                optimizer.state.clear()  # fresh Adam moments for the new task
+                task_weights = np.eye(len(train_levels))[meta_rng.integers(len(train_levels))]
+                pool.reset_all(task_weights)
+            plr_weights = sampler.weights() if cfg.level_sampler != "uniform" else None
+            weights = task_weights if meta else plr_weights
             if batched:
                 rollouts: list[Rollout] = pool.rollout_batched(actor, cfg.num_steps, weights)
             else:
@@ -328,12 +373,7 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
                 b_target,
                 b_tmask,
             )
-            if learner is not model:
-                with torch.no_grad():  # in place, so the workers' shared tensors see the new weights
-                    for dst, src in zip(
-                        model.state_dict().values(), learner.state_dict().values(), strict=True
-                    ):
-                        dst.copy_(src)
+            _sync(model, learner)
             y_pred, y_true = b_values.numpy(), b_returns.numpy()
             var_y = np.var(y_true)
             stats["explained_variance"] = float(1 - np.var(y_true - y_pred) / var_y) if var_y > 0 else 0.0
@@ -372,35 +412,10 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
                     flush=True,
                 )
 
-            if next_eval is not None and global_step >= next_eval:
-                next_eval += cfg.eval_interval
-                eval_metrics = run_evaluation(pool, cfg, train_levels, eval_levels, run_dir, global_step)
-                logger.log(global_step, eval_metrics)
-                last_eval_step = global_step
-            if global_step >= next_save:
-                next_save += cfg.save_interval
-                save_checkpoint(
-                    run_dir / f"ckpt_{global_step}.pt",
-                    model,
-                    optimizer,
-                    sampler,
-                    normalizer,
-                    cfg,
-                    env_cfg,
-                    global_step,
-                    update,
-                )
-                save_checkpoint(
-                    run_dir / "latest.pt",
-                    model,
-                    optimizer,
-                    sampler,
-                    normalizer,
-                    cfg,
-                    env_cfg,
-                    global_step,
-                    update,
-                )
+            if not meta:
+                eval_and_save(update)
+        if meta:
+            meta_outer_step()  # the final weights are meta-weights too
         save_checkpoint(
             run_dir / "latest.pt",
             model,
@@ -420,6 +435,14 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
         pool.close()
         logger.close()
     return run_dir
+
+
+def _sync(model: ActorCritic, learner: ActorCritic) -> None:
+    """Copy the learner's weights in place into the shared CPU model the workers act with."""
+    if learner is not model:
+        with torch.no_grad():
+            for dst, src in zip(model.state_dict().values(), learner.state_dict().values(), strict=True):
+                dst.copy_(src)
 
 
 def _next_obs_targets(rollouts, device) -> tuple[torch.Tensor, torch.Tensor]:

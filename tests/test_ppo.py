@@ -337,3 +337,45 @@ def test_end_to_end_auxiliary_forward_model(tmp_path):
     assert any("loss/aux_forward" in m for m in metrics)
     model, _ = load_policy(run_dir / "latest.pt")
     assert model.aux and model.aux_head is not None
+
+
+@pytest.mark.slow
+def test_reptile_meta_step_size_controls_how_far_theta_moves(tmp_path):
+    import torch
+
+    base = dict(out_dir=str(tmp_path), num_envs=2, num_steps=32, num_minibatches=2, update_epochs=1,
+                eval_interval=0, torch_threads=1, save_interval=10**9)  # fmt: skip
+    env_cfg = EnvConfig(levels=("1-1", "1-2"), obs="tiles2", max_episode_steps=40, ego_back=2, ego_ahead=8)
+    src = train(PPOConfig(run_name="src", total_steps=0, **base), env_cfg)
+    init = torch.load(src / "latest.pt", weights_only=False)["model"]
+
+    def final(step_size, name):
+        cfg = PPOConfig(run_name=name, total_steps=256, init_from=str(src / "latest.pt"), meta_inner_steps=128,
+                        meta_step_size=step_size, **base)  # fmt: skip
+        return torch.load(train(cfg, env_cfg) / "latest.pt", weights_only=False)["model"]
+
+    frozen = final(0.0, "eps0")  # inner loops train, but theta never moves
+    assert all(torch.equal(init[k], frozen[k]) for k in init)
+    moved = final(1.0, "eps1")
+    assert any(not torch.equal(init[k], moved[k]) for k in init)
+
+
+@pytest.mark.slow
+def test_reset_all_switches_every_worker_to_the_task_level():
+    from mario_rl.env import observation_spec
+    from mario_rl.inference import BatchedActor
+    from mario_rl.models import ActorCritic
+    from mario_rl.workers import WorkerPool
+
+    env_cfg = EnvConfig(levels=("1-1", "1-2", "1-3"), obs="tiles2", max_episode_steps=30)
+    obs_type, obs_shape, n_actions = observation_spec(env_cfg)
+    model = ActorCritic(obs_type, obs_shape, n_actions)
+    model.share_memory()
+    pool = WorkerPool(2, env_cfg, model, seed=0)
+    try:
+        task = np.array([0.0, 0.0, 1.0])
+        pool.reset_all(task)
+        for ro in pool.rollout_batched(BatchedActor(model), 40, task):
+            assert set(ro.level_ids.tolist()) == {2}  # 1-3 from the first step, also after the 30-step resets
+    finally:
+        pool.close()
