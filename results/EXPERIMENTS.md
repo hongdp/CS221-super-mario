@@ -423,3 +423,19 @@ Greedy completion **63.8% on all 32 levels, 70.3% on the 29 non-maze levels**. T
 Water levels 10-20%, mazes 0% (progress 37-70%). The completion sampler spent 12-20% of episodes on the still-unsolved
 mazes, and the extra DOWN action enlarges every level's action space. The curve was still rising at 200M. The mazes need
 dedicated route analysis. The best goal-A agent remains E25 @180M. Files: `goalA-final/`.
+
+## E34, E35: object-centric observation and an auxiliary world model (3 seeds each)
+`obs="objects"`: a Mario-relative terrain profile (pit flag + the 3 nearest walkable surfaces per 16 px column, 1 behind / 7 ahead)
+plus the 12 nearest entities with class, relative position, size and level-frame velocity, and a permutation-invariant set
+encoder (222k parameters). E35 adds an auxiliary forward model: the policy's encoder also predicts the next observation from
+(observation, action).
+
+| | held-out (6-10M) | per-seed Δ | train progress |
+|---|---|---|---|
+| E28: grid, ego 2/8 | 28.2 ± 2.2 | — | 59.9 |
+| E34: objects | 25.2 ± 0.4 | −3.0 / −0.7 / −5.2 vs E28 | 59.7 |
+| E35: objects + forward model | 26.3 ± 1.4 | +0.3 / +2.7 / +0.2 vs E34 | 57.7 |
+
+E34 is refuted (−3.0) and E35 inconclusive (+1.1; its forward-model loss falls from 0.38 to 0.04). **Across every representation and
+regularizer tried (E10-E35), held-out progress at 10M stays in a ~25-30% band.** The 22 training levels, not the input, now look
+like the bottleneck for goal B.
