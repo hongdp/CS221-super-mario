@@ -162,6 +162,47 @@ class TileEncoderImpala(nn.Module):
     forward = TileEncoderV2.forward
 
 
+class ObjectEncoder(nn.Module):
+    """Encoder for the ``objects`` observation (see objects.py).
+
+    terrain (B, C, F): a 1-D conv over the Mario-relative columns; ents (B, K, F): a shared per-entity
+    MLP followed by masked mean + max pooling (permutation invariant, any number of entities);
+    vec: Mario's state. Everything is concatenated into one hidden layer.
+    """
+
+    def __init__(self, obs_shape: dict, hidden: int = 256, width: int = 64):
+        super().__init__()
+        cols, t_feat = obs_shape["terrain"]
+        _, e_feat = obs_shape["ents"]
+        n_vec = obs_shape["vec"][0]
+        self.terrain = nn.Sequential(
+            _init(nn.Conv1d(t_feat, 32, 3, padding=1)),
+            nn.ReLU(),
+            _init(nn.Conv1d(32, 32, 3, padding=1)),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        self.entity = nn.Sequential(
+            _init(nn.Linear(e_feat, width)), nn.ReLU(), _init(nn.Linear(width, width)), nn.ReLU()
+        )
+        self.fc = nn.Sequential(_init(nn.Linear(cols * 32 + 2 * width + n_vec, hidden)), nn.ReLU())
+        self.out_dim = hidden
+
+    @staticmethod
+    def preprocess(obs: dict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return obs["terrain"].float(), obs["ents"].float(), obs["vec"].float()
+
+    def forward(self, x: tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        terrain, ents, vec = x
+        t = self.terrain(terrain.transpose(1, 2))  # (B, C, F) -> conv over columns
+        mask = ents[..., :1]  # "present" flag
+        h = self.entity(ents) * mask
+        n = mask.sum(1).clamp(min=1.0)
+        mean = h.sum(1) / n
+        mx = (h - (1 - mask) * 1e4).max(1).values.clamp(min=0.0)  # empty set -> zeros
+        return self.fc(torch.cat([t, mean, mx, vec], dim=-1))
+
+
 ARCHS = ("default", "impala")
 
 
@@ -176,6 +217,8 @@ def _encoder(obs_type: str, obs_shape, arch: str = "default") -> nn.Module:
         return TileEncoderV2(obs_shape)
     if obs_type == "pixels":
         return PixelEncoder(obs_shape)
+    if obs_type == "objects":
+        return ObjectEncoder(obs_shape)
     raise ValueError(f"unknown observation type {obs_type!r}")
 
 

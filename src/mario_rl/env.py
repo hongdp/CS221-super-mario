@@ -11,6 +11,7 @@ import numpy as np
 from . import smb
 from .emulator import DOWN, LEFT, RIGHT, UP, A, B
 from .levels import TRAIN_LEVELS, Level, parse_levels
+from .objects import ENTITY_FEATURES, TERRAIN_FEATURES, EntityTracker, terrain_profile
 from .tiles import (
     COLS,
     COLS2,
@@ -54,7 +55,8 @@ class EnvConfig:
     levels: tuple[str, ...] = tuple(str(lv) for lv in TRAIN_LEVELS)
     # tiles: 13x16 grid, 16px cells (2017 representation); tiles2: 26x32 grid of 8px cells built
     # from collision boxes with stompable/hazard classes, plus a Mario state vector; pixels: 84x84.
-    obs: Literal["tiles", "tiles2", "pixels"] = "tiles2"
+    # objects: Mario-relative terrain profile + nearby-entity list + state vector (see objects.py).
+    obs: Literal["tiles", "tiles2", "pixels", "objects"] = "tiles2"
     actions: str = "simple"
     frame_skip: int = 4
     frame_stack: int = 4
@@ -74,6 +76,10 @@ class EnvConfig:
     # the network has less layout to memorize and must act on what is near Mario.
     ego_back: int = 0
     ego_ahead: int = 0
+    # objects observation: terrain columns (16 px) behind / ahead of Mario, and entity slots
+    obj_back: int = 1
+    obj_ahead: int = 7
+    obj_slots: int = 12
     # Mid-level starts: training resets (those without an explicit level option, so never
     # evaluation) load a random archived state of the chosen level with this probability. The
     # archive holds one state per (area, mid_start_bucket px) reached on the ground. A candidate
@@ -122,6 +128,12 @@ def observation_spec(config: EnvConfig) -> tuple[str, Any, int]:
         shape = {"grid": (config.frame_stack, ROWS2, cols), "vec": (NUM_FEATURES,)}
     elif config.obs == "pixels":
         shape = (config.frame_stack, PIXEL_SIZE, PIXEL_SIZE)
+    elif config.obs == "objects":
+        shape = {
+            "terrain": (config.obj_back + config.obj_ahead, TERRAIN_FEATURES),
+            "ents": (config.obj_slots, ENTITY_FEATURES),
+            "vec": (NUM_FEATURES,),
+        }
     else:
         raise ValueError(f"unknown observation type {config.obs!r}")
     if config.actions not in ACTION_SETS:
@@ -162,6 +174,14 @@ class MarioEnv(gym.Env):
                 }
             )
             frame_shape = (config.frame_stack, ROWS2, COLS2)  # full screen; cropped in _obs if ego
+        elif obs_type == "objects":
+            self.observation_space = gym.spaces.Dict(
+                {
+                    k: gym.spaces.Box(-10.0, 10.0, v, np.float32) for k, v in shape.items()
+                }  # features are clipped
+            )
+            frame_shape = (config.frame_stack, ROWS2, COLS2)  # tiles2 grid kept for analysis tools
+            self._entities = EntityTracker(config.obj_slots)
         else:
             high = NUM_TILE_TYPES - 1 if obs_type == "tiles" else 255
             self.observation_space = gym.spaces.Box(0, high, shape, np.uint8)
@@ -326,6 +346,8 @@ class MarioEnv(gym.Env):
 
     # --- helpers ---------------------------------------------------------------
     def _reset_episode_state(self, ram: np.ndarray | None = None) -> None:
+        if hasattr(self, "_entities"):
+            self._entities.reset()
         self._steps_above = 0
         self._area_max: dict[int, int] = {}
         self._last_buttons = 0
@@ -341,7 +363,7 @@ class MarioEnv(gym.Env):
         """The newest frame of the stack."""
         if self.config.obs == "tiles":
             return tile_grid(ram)
-        if self.config.obs == "tiles2":
+        if self.config.obs in ("tiles2", "objects"):
             return tile_grid_v2(ram)
         return _downsample(self._game.emu.screen)
 
@@ -349,6 +371,12 @@ class MarioEnv(gym.Env):
         if self.config.obs == "tiles2":
             grid = self._frames.copy() if not self.config.ego_ahead else self._ego_window(ram)
             return {"grid": grid, "vec": mario_features(ram)}
+        if self.config.obs == "objects":  # called exactly once per reset / step (entity velocities)
+            return {
+                "terrain": terrain_profile(ram, self.config.obj_back, self.config.obj_ahead),
+                "ents": self._entities(ram),
+                "vec": mario_features(ram),
+            }
         return self._frames.copy()
 
     def _perturb_terrain(self, ram: np.ndarray, x: int) -> None:

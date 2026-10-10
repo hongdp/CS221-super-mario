@@ -277,3 +277,32 @@ def test_init_from_starts_a_new_run_from_pretrained_weights(tmp_path):
     dst_ckpt = torch.load(dst / "latest.pt", weights_only=False)
     assert dst_ckpt["global_step"] == 0
     assert all(torch.equal(src_weights[k], dst_ckpt["model"][k]) for k in src_weights)
+
+
+def test_object_encoder_is_permutation_invariant_and_handles_no_entities():
+    import torch
+
+    from mario_rl.env import EnvConfig, observation_spec
+    from mario_rl.models import ActorCritic
+
+    obs_type, shape, n = observation_spec(EnvConfig(obs="objects"))
+    model = ActorCritic(obs_type, shape, n)
+    obs = {k: torch.randn(3, *v) for k, v in shape.items()}
+    obs["ents"][:, 5:, 0] = 0
+    obs["ents"][0, :, 0] = 0  # no entities at all
+    perm = torch.randperm(shape["ents"][0])
+    logits, value = model(obs)
+    assert torch.isfinite(logits).all() and torch.isfinite(value).all()
+    assert torch.allclose(logits, model({**obs, "ents": obs["ents"][:, perm]})[0], atol=1e-5)
+
+
+@pytest.mark.slow
+def test_end_to_end_objects_observation(tmp_path):
+    cfg = PPOConfig(
+        run_name="obj", out_dir=str(tmp_path), total_steps=64, num_envs=2, num_steps=32,
+        num_minibatches=2, update_epochs=1, eval_interval=64, eval_levels="2-1",
+        eval_on_train=False, eval_episodes=1, save_interval=64, torch_threads=1, inference="batched",
+    )  # fmt: skip
+    run_dir = train(cfg, EnvConfig(levels=("1-1",), obs="objects", max_episode_steps=40))
+    model, _ = load_policy(run_dir / "latest.pt")
+    assert model.obs_type == "objects"

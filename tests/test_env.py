@@ -298,3 +298,21 @@ def test_x_pos_is_signed_left_of_the_level_start():
     assert smb.x_pos(ram) == -3
     ram[smb.PLAYER_PAGE], ram[smb.PLAYER_X] = 0x12, 0x34
     assert smb.x_pos(ram) == 0x1234
+
+
+def test_objects_observation():
+    with closing(MarioEnv(levels=("1-1",), obs="objects", noop_max=0)) as env:
+        check_env(env, skip_render_check=True)
+        obs, _ = env.reset(seed=0, options={"level": "1-1"})
+        assert obs["terrain"].shape == (8, 7) and obs["ents"].shape == (12, 10)
+        assert (obs["terrain"][:, 0] == 0).all() and np.allclose(
+            obs["terrain"][:, 1:3], [0, 1]
+        )  # flat ground
+        goomba = None
+        for _ in range(35):  # walk right until the first goomba is near
+            obs, *_ = env.step(RIGHT)
+            if obs["ents"][0, 0] and obs["ents"][0, 1] * 64 < 120:
+                goomba = obs["ents"][0]
+        assert goomba is not None
+        assert goomba[7] == 1  # stompable
+        assert -4 <= goomba[5] * 8 <= -1  # walks left at 1-4 px per agent step (level coordinates)
