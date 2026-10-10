@@ -417,3 +417,9 @@ input-size lever is exhausted at ~28-29% held-out progress.**
 The first final goal-A run was stopped at ~75M (0-9% completion). Stepping left of the 4-4 level start underflowed the x page
 byte (x ≈ 65533). The new-ground maze reward paid it (≈ 6450 in one step), and the giant returns blew up the reward normalizer. Fixed
 (`x_pos` signed, new-ground reward capped at 512 px). A scan of 14.5k past level evaluations found no contamination. E27b is the same config on the fixed code.
+
+## E27b: goal A final run from scratch (all 32 levels, every fix, 200M steps)
+Greedy completion **63.8% on all 32 levels, 70.3% on the 29 non-maze levels**. That is below the patched E25 lineage (85.5%).
+Water levels 10-20%, mazes 0% (progress 37-70%). The completion sampler spent 12-20% of episodes on the still-unsolved
+mazes, and the extra DOWN action enlarges every level's action space. The curve was still rising at 200M. The mazes need
+dedicated route analysis. The best goal-A agent remains E25 @180M. Files: `goalA-final/`.
