@@ -450,3 +450,9 @@ Meta-training: each task = 8 PPO updates (16k steps) on one training level from 
 adapted weights, for 10M steps. Few-shot results: **40.0 / 3.3 at 25k** (E30: 40.5 / 3.3) and 52.1 / 8.1 at 100k (E30: 50.8 / 7.1).
 Refuted. Reptile adapts faster (+15 points in 25k vs +10.5), but its meta-weights start lower (zero-shot 24.9 vs 30.0, and much weaker on
 the training levels), so the two cancel.
+
+## E37: in-context meta-RL (RL²: GRU policy, trials of 3 attempts; 3 seeds)
+Held-out, 10 trials per level: progress on attempt 1 / 3 = 24.3 / 23.9 with memory kept (−0.4), and 25.3 / 24.4 when the memory is reset
+at every attempt (control). **Refuted: no in-context adaptation**, not even on the training levels. A structural cause: trials span
+~450-750 steps, but recurrent PPO backpropagates through 256-step segments only, so the learning signal cannot connect attempt 1 to attempt 3.
+Evaluations: `goalB/E37-rl2/` (script `goalB/trial_eval.py`).
