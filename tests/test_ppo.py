@@ -306,3 +306,34 @@ def test_end_to_end_objects_observation(tmp_path):
     run_dir = train(cfg, EnvConfig(levels=("1-1",), obs="objects", max_episode_steps=40))
     model, _ = load_policy(run_dir / "latest.pt")
     assert model.obs_type == "objects"
+
+
+def test_next_obs_targets_mask_episode_ends():
+    import torch
+
+    from mario_rl.ppo import _next_obs_targets
+    from mario_rl.workers import Rollout
+
+    T = 5
+    obs = {"a": np.arange(T, dtype=np.float32)[:, None], "b": np.zeros((T, 2), dtype=np.float32)}
+    dones = np.array([False, True, False, False, False])
+    z = np.zeros(T, dtype=np.float32)
+    ro = Rollout(obs, z.astype(np.int64), z, z, z, z, dones, z.astype(np.int16), 0.0)
+    target, mask = _next_obs_targets([ro], torch.device("cpu"))
+    assert torch.equal(
+        mask, torch.tensor([1.0, 0.0, 1.0, 1.0, 0.0])
+    )  # no target across the episode end / segment end
+    assert torch.equal(target[0], torch.tensor([1.0, 0.0, 0.0]))  # keys sorted: a, then b (2 values)
+
+
+@pytest.mark.slow
+def test_end_to_end_auxiliary_forward_model(tmp_path):
+    cfg = PPOConfig(
+        run_name="aux", out_dir=str(tmp_path), total_steps=128, num_envs=2, num_steps=32, num_minibatches=2,
+        update_epochs=1, eval_interval=0, save_interval=128, torch_threads=1, aux_coef=1.0,
+    )  # fmt: skip
+    run_dir = train(cfg, EnvConfig(levels=("1-1",), obs="objects", max_episode_steps=40))
+    metrics = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text().splitlines()]
+    assert any("loss/aux_forward" in m for m in metrics)
+    model, _ = load_policy(run_dir / "latest.pt")
+    assert model.aux and model.aux_head is not None

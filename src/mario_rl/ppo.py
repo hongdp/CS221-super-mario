@@ -20,7 +20,7 @@ from .env import EnvConfig, observation_spec
 from .evaluate import format_table, summarize
 from .inference import BatchedActor
 from .levels import parse_levels
-from .models import ActorCritic
+from .models import ActorCritic, flatten_obs
 from .obs import batch_size, concat, take, to_device, to_torch
 from .plr import LevelSampler
 from .workers import Rollout, WorkerPool
@@ -48,6 +48,9 @@ class PPOConfig:
     # aug_shift cells (0 disables), weighted by aug_coef. The PPO loss itself uses the original obs.
     aug_shift: int = 0
     aug_coef: float = 0.1
+    # Auxiliary forward model (obs="objects"): the actor's encoder also predicts the next observation
+    # from (observation, action), weighted by aux_coef (0 disables). "Learn how the world works".
+    aux_coef: float = 0.0
     shared_encoder: bool = False
     arch: str = "default"  # encoder: "default" or "impala" (tiles2 only), see models.ARCHS
     norm_reward: bool = True  # divide rewards by the running std of discounted returns
@@ -207,6 +210,7 @@ def load_policy(path: str | Path) -> tuple[ActorCritic, dict]:
         spec["n_actions"],
         spec.get("shared", False),
         spec.get("arch", "default"),
+        spec.get("aux", False),
     )
     model.load_state_dict(ckpt["model"])
     model.eval()
@@ -237,7 +241,9 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
         )
 
     obs_type, obs_shape, n_actions = observation_spec(env_cfg)
-    model = ActorCritic(obs_type, obs_shape, n_actions, shared=cfg.shared_encoder, arch=cfg.arch)
+    model = ActorCritic(
+        obs_type, obs_shape, n_actions, shared=cfg.shared_encoder, arch=cfg.arch, aux=cfg.aux_coef > 0
+    )
     if ckpt is not None:
         model.load_state_dict(ckpt["model"])
     elif cfg.init_from:
@@ -300,6 +306,9 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
                     for level_id, score in plr_scores(adv, ro.dones, ro.level_ids):
                         sampler.update(level_id, score)
             b_obs = to_device(to_torch(concat([ro.obs for ro in rollouts])), device)
+            b_target = b_tmask = None
+            if cfg.aux_coef:
+                b_target, b_tmask = _next_obs_targets(rollouts, device)
             b_actions = torch.from_numpy(np.concatenate([ro.actions for ro in rollouts])).to(device)
             b_logprobs = torch.from_numpy(np.concatenate([ro.logprobs for ro in rollouts])).to(device)
             b_values = torch.from_numpy(np.concatenate([ro.values for ro in rollouts]))
@@ -316,6 +325,8 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
                 b_returns.to(device),
                 b_adv.to(device),
                 minibatch_size,
+                b_target,
+                b_tmask,
             )
             if learner is not model:
                 with torch.no_grad():  # in place, so the workers' shared tensors see the new weights
@@ -411,10 +422,37 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
     return run_dir
 
 
-def _ppo_update(model, optimizer, cfg, b_obs, b_actions, b_logprobs, b_returns, b_adv, minibatch_size):
+def _next_obs_targets(rollouts, device) -> tuple[torch.Tensor, torch.Tensor]:
+    """Flattened next observation for every step, and a mask that is 0 where there is none in the same
+    episode (the episode ended after the step, or it is the last step of the segment)."""
+    targets, masks = [], []
+    for ro in rollouts:
+        flat = flatten_obs(to_torch(ro.obs))
+        nxt = torch.zeros_like(flat)
+        nxt[:-1] = flat[1:]
+        mask = torch.from_numpy(~ro.dones).float()
+        mask[-1] = 0.0
+        targets.append(nxt)
+        masks.append(mask)
+    return torch.cat(targets).to(device), torch.cat(masks).to(device)
+
+
+def _ppo_update(
+    model,
+    optimizer,
+    cfg,
+    b_obs,
+    b_actions,
+    b_logprobs,
+    b_returns,
+    b_adv,
+    minibatch_size,
+    b_target=None,
+    b_tmask=None,
+):
     n = batch_size(b_obs)
     clipfracs, approx_kls, pg_losses, v_losses, entropies = [], [], [], [], []
-    aug_pi_losses, aug_v_losses = [], []
+    aug_pi_losses, aug_v_losses, aux_losses = [], [], []
     for _ in range(cfg.update_epochs):
         perm = torch.randperm(n, device=b_actions.device)
         for start in range(0, n, minibatch_size):
@@ -442,6 +480,12 @@ def _ppo_update(model, optimizer, cfg, b_obs, b_actions, b_logprobs, b_returns, 
                 loss = loss + cfg.aug_coef * (aug_pi + aug_v)
                 aug_pi_losses.append(aug_pi.item())
                 aug_v_losses.append(aug_v.item())
+            if b_target is not None:
+                err = (model.predict_next(mb_obs, b_actions[idx]) - b_target[idx]).pow(2).mean(-1)
+                m = b_tmask[idx]
+                aux = (err * m).sum() / m.sum().clamp(min=1.0)
+                loss = loss + cfg.aux_coef * aux
+                aux_losses.append(aux.item())
             optimizer.zero_grad()
             loss.backward()
             for group in model.parameter_groups():
@@ -460,6 +504,8 @@ def _ppo_update(model, optimizer, cfg, b_obs, b_actions, b_logprobs, b_returns, 
     if aug_pi_losses:
         stats["loss/aug_policy_kl"] = float(np.mean(aug_pi_losses))
         stats["loss/aug_value"] = float(np.mean(aug_v_losses))
+    if aux_losses:
+        stats["loss/aux_forward"] = float(np.mean(aux_losses))
     return stats
 
 

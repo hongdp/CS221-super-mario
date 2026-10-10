@@ -206,6 +206,11 @@ class ObjectEncoder(nn.Module):
 ARCHS = ("default", "impala")
 
 
+def flatten_obs(obs: dict) -> torch.Tensor:
+    """(B, ...) dict observation -> (B, D) float tensor, keys in sorted order (the forward model's target)."""
+    return torch.cat([obs[k].float().flatten(1) for k in sorted(obs)], dim=1)
+
+
 def _encoder(obs_type: str, obs_shape, arch: str = "default") -> nn.Module:
     if arch == "impala":
         if obs_type != "tiles2":
@@ -232,10 +237,19 @@ class ActorCritic(nn.Module):
     Generalization in RL"). ``shared=True`` restores a single trunk.
     """
 
-    def __init__(self, obs_type: str, obs_shape, n_actions: int, shared: bool = False, arch: str = "default"):
+    def __init__(
+        self,
+        obs_type: str,
+        obs_shape,
+        n_actions: int,
+        shared: bool = False,
+        arch: str = "default",
+        aux: bool = False,
+    ):
         super().__init__()
         self.obs_type = obs_type
         self.arch = arch
+        self.aux = aux
         self.obs_shape = (
             {k: tuple(v) for k, v in obs_shape.items()} if isinstance(obs_shape, dict) else tuple(obs_shape)
         )
@@ -245,6 +259,22 @@ class ActorCritic(nn.Module):
         self.critic_encoder = None if shared else _encoder(obs_type, self.obs_shape, arch)
         self.policy = _init(nn.Linear(self.actor_encoder.out_dim, n_actions), gain=0.01)
         self.value = _init(nn.Linear(self.actor_encoder.out_dim, 1), gain=1.0)
+        self.aux_head = None
+        if aux:  # forward model on the actor's features: (features, action) -> next observation
+            if obs_type != "objects":
+                raise ValueError("the auxiliary forward model is implemented for obs='objects' only")
+            target = sum(int(np.prod(v)) for v in self.obs_shape.values())
+            self.aux_head = nn.Sequential(
+                _init(nn.Linear(self.actor_encoder.out_dim + n_actions, 256)),
+                nn.ReLU(),
+                _init(nn.Linear(256, target)),
+            )
+
+    def predict_next(self, obs, actions: torch.Tensor) -> torch.Tensor:
+        """Predicted next observation, flattened in the order of ``flatten_obs``."""
+        h = self.actor_encoder(self.actor_encoder.preprocess(obs))
+        a = nn.functional.one_hot(actions, self.n_actions).float()
+        return self.aux_head(torch.cat([h, a], dim=-1))
 
     def forward(self, obs) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.actor_encoder.preprocess(obs)  # shared by both encoders
@@ -261,6 +291,8 @@ class ActorCritic(nn.Module):
         if self.critic_encoder is None:
             return [list(self.parameters())]
         actor = [*self.actor_encoder.parameters(), *self.policy.parameters()]
+        if self.aux_head is not None:
+            actor += list(self.aux_head.parameters())
         critic = [*self.critic_encoder.parameters(), *self.value.parameters()]
         return [actor, critic]
 
@@ -292,4 +324,5 @@ class ActorCritic(nn.Module):
             "n_actions": self.n_actions,
             "shared": self.shared,
             "arch": self.arch,
+            "aux": self.aux,
         }
