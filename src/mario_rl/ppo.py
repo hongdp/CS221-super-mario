@@ -54,6 +54,8 @@ class PPOConfig:
     # Reptile meta-learning (Nichol et al., 2018): every task = one training level for meta_inner_steps
     # env steps of PPO from the current meta-weights theta (fresh Adam moments); then
     # theta += meta_step_size * (adapted - theta). 0 disables. Checkpoints and evaluations hold theta.
+    # In-context meta-RL (RL^2): a GRU policy trained over trials of EnvConfig.trial_episodes attempts.
+    recurrent: bool = False
     meta_inner_steps: int = 0
     meta_step_size: float = 0.3
     shared_encoder: bool = False

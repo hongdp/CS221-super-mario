@@ -107,6 +107,11 @@ class EnvConfig:
     # buffer, so the agent sees and collides with the new block. Only empty cells with headroom
     # are used. Like mid-level starts, this never applies to resets with an explicit level (evaluation).
     terrain_noise: float = 0.0
+    # Trials for in-context meta-RL (RL^2, goal B): when > 0, a trial is this many attempts at the same
+    # level; after an attempt ends (death, flag, time-out) the next reset replays the same level until the
+    # trial is over. vec gets extra inputs: previous action (one-hot), previous reward, a "first step of
+    # an attempt" flag and the attempt index. info["trial_end"] marks the end of a trial.
+    trial_episodes: int = 0
     mid_start_bucket: int = 256
     mid_start_confirm: int = 30
     rom_path: str | None = None
@@ -114,6 +119,11 @@ class EnvConfig:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def meta_features(config: EnvConfig) -> int:
+    """Extra vec entries in trial mode: previous action one-hot, previous reward, first-step flag, attempt."""
+    return len(ACTION_SETS[config.actions]) + 3 if config.trial_episodes else 0
 
 
 def observation_spec(config: EnvConfig) -> tuple[str, Any, int]:
@@ -125,14 +135,14 @@ def observation_spec(config: EnvConfig) -> tuple[str, Any, int]:
         shape = (config.frame_stack, ROWS, COLS)
     elif config.obs == "tiles2":
         cols = config.ego_back + config.ego_ahead if config.ego_ahead else COLS2
-        shape = {"grid": (config.frame_stack, ROWS2, cols), "vec": (NUM_FEATURES,)}
+        shape = {"grid": (config.frame_stack, ROWS2, cols), "vec": (NUM_FEATURES + meta_features(config),)}
     elif config.obs == "pixels":
         shape = (config.frame_stack, PIXEL_SIZE, PIXEL_SIZE)
     elif config.obs == "objects":
         shape = {
             "terrain": (config.obj_back + config.obj_ahead, TERRAIN_FEATURES),
             "ents": (config.obj_slots, ENTITY_FEATURES),
-            "vec": (NUM_FEATURES,),
+            "vec": (NUM_FEATURES + meta_features(config),),
         }
     else:
         raise ValueError(f"unknown observation type {config.obs!r}")
@@ -191,6 +201,8 @@ class MarioEnv(gym.Env):
         self._archive: dict[Level, dict[tuple[int, int], bytes]] = {}  # mid-level start states
         self._pending: tuple[tuple[int, int], bytes, int] | None = None
         self._mid_start = False
+        self._attempt, self._trial_level = 0, None
+        self._prev_action, self._prev_reward, self._first_step = -1, 0.0, True
         self._game = smb.SMBGame(config.rom_path)
         self.level = self.levels[0]
         self._reset_episode_state()
@@ -212,10 +224,16 @@ class MarioEnv(gym.Env):
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         super().reset(seed=seed)
         options = options or {}
+        trials = self.config.trial_episodes
         if "level" in options:
             level = options["level"]
             self.level = level if isinstance(level, Level) else Level.parse(level)
+            self._attempt = int(options.get("attempt", 0))
+        elif trials and self._trial_level is not None and self._attempt + 1 < trials:
+            self.level = self._trial_level  # next attempt of the same trial
+            self._attempt += 1
         else:
+            self._attempt = 0
             idx = self.np_random.choice(len(self.levels), p=self._weights)
             self.level = self.levels[idx]
         self._game.load(self.level)
@@ -240,6 +258,8 @@ class MarioEnv(gym.Env):
             self._game.frame(0)
         ram = self._game.ram()
         self._reset_episode_state(ram)
+        self._trial_level = self.level if trials else None
+        self._prev_action, self._prev_reward, self._first_step = -1, 0.0, True
         self._frames[:] = self._observe(ram)
         return self._obs(ram), self._info(ram)
 
@@ -325,6 +345,10 @@ class MarioEnv(gym.Env):
         self._frames[:-1] = self._frames[1:]
         self._frames[-1] = self._observe(ram)
         info = self._info(ram)
+        trials = cfg.trial_episodes
+        info["trial_end"] = (terminated or truncated) and (not trials or self._attempt + 1 >= trials)
+        if info["trial_end"]:
+            self._trial_level = None
         if terminated or truncated:
             info["episode"] = {
                 "r": self._return,
@@ -333,7 +357,9 @@ class MarioEnv(gym.Env):
                 "flag_get": self._flag,
                 "level_id": self.levels.index(self.level) if self.level in self.levels else -1,
                 "mid_start": self._mid_start,
+                "attempt": self._attempt,
             }
+        self._prev_action, self._prev_reward, self._first_step = int(action), float(reward), False
         return self._obs(ram), float(reward), terminated, truncated, info
 
     def render(self):
@@ -370,14 +396,28 @@ class MarioEnv(gym.Env):
     def _obs(self, ram: np.ndarray):
         if self.config.obs == "tiles2":
             grid = self._frames.copy() if not self.config.ego_ahead else self._ego_window(ram)
-            return {"grid": grid, "vec": mario_features(ram)}
+            return {"grid": grid, "vec": self._vec(ram)}
         if self.config.obs == "objects":  # called exactly once per reset / step (entity velocities)
             return {
                 "terrain": terrain_profile(ram, self.config.obj_back, self.config.obj_ahead),
                 "ents": self._entities(ram),
-                "vec": mario_features(ram),
+                "vec": self._vec(ram),
             }
         return self._frames.copy()
+
+    def _vec(self, ram: np.ndarray) -> np.ndarray:
+        """Mario's state, plus the trial inputs (previous action / reward, first step, attempt) in trial mode."""
+        vec = mario_features(ram)
+        if not self.config.trial_episodes:
+            return vec
+        meta = np.zeros(meta_features(self.config), dtype=np.float32)
+        n = len(self._buttons)
+        if self._prev_action >= 0:
+            meta[self._prev_action] = 1.0
+        meta[n] = np.clip(self._prev_reward, -5.0, 5.0) / 5.0
+        meta[n + 1] = float(self._first_step)
+        meta[n + 2] = self._attempt / max(self.config.trial_episodes - 1, 1)
+        return np.concatenate([vec, meta])
 
     def _perturb_terrain(self, ram: np.ndarray, x: int) -> None:
         """Maybe add a block to every column that has entered the right edge of the screen."""

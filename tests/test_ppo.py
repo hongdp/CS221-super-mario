@@ -379,3 +379,47 @@ def test_reset_all_switches_every_worker_to_the_task_level():
             assert set(ro.level_ids.tolist()) == {2}  # 1-3 from the first step, also after the 30-step resets
     finally:
         pool.close()
+
+
+def test_recurrent_sequence_replay_matches_stepwise_with_resets():
+    import torch
+
+    from mario_rl.env import EnvConfig, observation_spec
+    from mario_rl.recurrent import RecurrentActorCritic
+
+    obs_type, shape, n = observation_spec(EnvConfig(obs="tiles2", ego_back=2, ego_ahead=8, trial_episodes=3))
+    model = RecurrentActorCritic(obs_type, shape, n, hidden=32)
+    T, B = 6, 3
+    obs = {
+        "grid": torch.randint(0, 6, (T, B, *shape["grid"]), dtype=torch.uint8),
+        "vec": torch.randn(T, B, *shape["vec"]),
+    }
+    resets = torch.zeros(T, B)
+    resets[3, 1] = 1.0  # env 1 starts a new trial at step 3
+    state0 = torch.randn(B, 2, 32)
+    logits_seq, values_seq = model.forward_seq(obs, state0, resets)
+    state = state0.clone()
+    for t in range(T):
+        state = state * (1 - resets[t]).view(B, 1, 1)
+        logits, values, state = model.step({k: v[t] for k, v in obs.items()}, state)
+        assert torch.allclose(logits, logits_seq[t], atol=1e-5) and torch.allclose(
+            values, values_seq[t], atol=1e-5
+        )
+
+
+@pytest.mark.slow
+def test_end_to_end_recurrent_trials(tmp_path):
+    from mario_rl.recurrent import load_recurrent, train_recurrent
+
+    cfg = PPOConfig(
+        run_name="rl2", out_dir=str(tmp_path), total_steps=192, num_envs=2, num_steps=32, num_minibatches=2,
+        update_epochs=1, eval_interval=192, eval_levels="2-1", eval_episodes=1, save_interval=192,
+        torch_threads=1, recurrent=True,
+    )  # fmt: skip
+    env_cfg = EnvConfig(levels=("1-1", "1-2"), obs="tiles2", ego_back=2, ego_ahead=8, trial_episodes=3,
+                        max_episode_steps=20)  # fmt: skip
+    run_dir = train_recurrent(cfg, env_cfg)
+    rec = [json.loads(line) for line in (run_dir / "eval.jsonl").read_text().splitlines()]
+    assert {"attempt1/progress", "attempt3/progress"} <= set(rec[-1]["test"])  # all 3 attempts evaluated
+    model, ckpt = load_recurrent(run_dir / "latest.pt")
+    assert ckpt["model_spec"]["recurrent"] and model.hidden == 256

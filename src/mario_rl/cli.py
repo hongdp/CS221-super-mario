@@ -73,6 +73,11 @@ def cmd_train(ns: argparse.Namespace) -> None:
     else:
         env_cfg = _build(EnvConfig, ns, levels=_levels_arg(ns.levels))
         ppo_cfg = _build(PPOConfig, ns)
+    if ppo_cfg.recurrent:
+        from .recurrent import train_recurrent
+
+        train_recurrent(ppo_cfg, env_cfg)
+        return
     train(ppo_cfg, env_cfg)
 
 

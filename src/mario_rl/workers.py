@@ -42,6 +42,11 @@ class Rollout:
     episodes: list[dict[str, Any]] = field(default_factory=list)
 
 
+def _level_id(env: MarioEnv) -> int:
+    """Index of the current level in the training levels; -1 for a level outside them (evaluation)."""
+    return env.levels.index(env.level) if env.level in env.levels else -1
+
+
 def _run_episode(env: MarioEnv, model: ActorCritic, level, greedy: bool, gen) -> dict:
     obs, _ = env.reset(options={"level": level})
     while True:
@@ -75,7 +80,7 @@ def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int):
                 episodes = []
                 with torch.inference_mode():
                     for t in range(num_steps):
-                        level_ids[t] = env.levels.index(env.level)
+                        level_ids[t] = _level_id(env)
                         store(buf_obs, t, obs)
                         action, logprob, value = model.act(to_torch(obs, batch=True), generator=gen)
                         obs, reward, terminated, truncated, info = env.step(int(action))
@@ -101,6 +106,9 @@ def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int):
                         ),
                     )
                 )  # fmt: skip
+            elif command == "reset_level":  # trial evaluation: explicit level (and attempt), returns the obs
+                obs, _ = env.reset(options=payload)
+                conn.send(("ok", obs))
             elif command == "reset_to":  # switch level now (meta-learning tasks): set weights, new episode
                 env.set_level_weights(payload)
                 obs, _ = env.reset()
@@ -108,17 +116,21 @@ def _worker(index: int, conn, env_config: dict, model: ActorCritic, seed: int):
             elif command == "begin":  # start a learner-driven (batched) rollout segment
                 if payload is not None:
                     env.set_level_weights(payload)
-                conn.send(("ok", (obs, env.levels.index(env.level))))
+                conn.send(("ok", (obs, _level_id(env))))
             elif command == "step":
                 obs, reward, terminated, truncated, info = env.step(payload)
-                # time-limit / stuck truncation bootstraps from the final observation's value
-                final_obs = obs if truncated and not terminated else None
+                # "done" for GAE (and recurrent-state resets) is the end of a trial; without trial mode that is
+                # every episode end. Time-limit / stuck truncation bootstraps from the final observation's value.
+                done = info["trial_end"]
+                final_obs = obs if done and truncated and not terminated else None
                 episode = None
                 if terminated or truncated:
                     episode = {"level": info["level"], **info["episode"]}
-                    obs, _ = env.reset()
-                level_id = env.levels.index(env.level)
-                conn.send(("ok", (obs, float(reward), terminated or truncated, final_obs, episode, level_id)))
+                    obs, _ = (
+                        env.reset()
+                    )  # in trial mode: the next attempt of the same level until the trial ends
+                level_id = _level_id(env)
+                conn.send(("ok", (obs, float(reward), done, final_obs, episode, level_id)))
             elif command == "evaluate":
                 jobs, greedy = payload
                 with torch.inference_mode():
