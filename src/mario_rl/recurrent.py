@@ -9,8 +9,10 @@ unseen level without any weight update: learning from its own previous deaths.
 
 from __future__ import annotations
 
+import itertools
 import time
 from dataclasses import asdict
+from multiprocessing import connection as mp_connection
 from pathlib import Path
 
 import numpy as np
@@ -37,8 +39,8 @@ class RecurrentActorCritic(nn.Module):
         )
         self.actor_encoder = _encoder(obs_type, self.obs_shape, arch)
         self.critic_encoder = _encoder(obs_type, self.obs_shape, arch)
-        self.actor_rnn = nn.GRUCell(self.actor_encoder.out_dim, hidden)
-        self.critic_rnn = nn.GRUCell(self.critic_encoder.out_dim, hidden)
+        self.actor_rnn = nn.GRU(self.actor_encoder.out_dim, hidden)  # (T, B, F); cuDNN for sequences
+        self.critic_rnn = nn.GRU(self.critic_encoder.out_dim, hidden)
         self.policy = _init(nn.Linear(hidden, n_actions), gain=0.01)
         self.value = _init(nn.Linear(hidden, 1), gain=1.0)
 
@@ -52,13 +54,17 @@ class RecurrentActorCritic(nn.Module):
     def step(self, obs, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """One step: (logits, value, new state)."""
         fa, fc = self._features(obs)
-        ha, hc = self.actor_rnn(fa, state[:, 0]), self.critic_rnn(fc, state[:, 1])
+        ha = self.actor_rnn(fa.unsqueeze(0), state[:, 0].unsqueeze(0).contiguous())[0][0]
+        hc = self.critic_rnn(fc.unsqueeze(0), state[:, 1].unsqueeze(0).contiguous())[0][0]
         return self.policy(ha), self.value(hc).squeeze(-1), torch.stack([ha, hc], 1)
 
     def forward_seq(
         self, obs, state0: torch.Tensor, resets: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """obs: (T, B, ...) per key, state0: (B, 2, H), resets: (T, B) with 1 = clear the state before step t."""
+        """obs: (T, B, ...) per key, state0: (B, 2, H), resets: (T, B) with 1 = clear the state before step t.
+
+        Each env's sequence is cut at its resets into pieces; the first piece starts from state0, later ones
+        from zeros. All pieces run as one packed cuDNN GRU call (identical to stepping with resets)."""
         T, B = resets.shape
         flat = (
             {k: v.reshape(T * B, *v.shape[2:]) for k, v in obs.items()}
@@ -67,14 +73,30 @@ class RecurrentActorCritic(nn.Module):
         )
         fa, fc = self._features(flat)
         fa, fc = fa.view(T, B, -1), fc.view(T, B, -1)
-        ha, hc = state0[:, 0], state0[:, 1]
-        outs_a, outs_c = [], []
-        for t in range(T):
-            keep = (1.0 - resets[t]).unsqueeze(-1)
-            ha, hc = self.actor_rnn(fa[t], ha * keep), self.critic_rnn(fc[t], hc * keep)
-            outs_a.append(ha)
-            outs_c.append(hc)
-        ha_seq, hc_seq = torch.stack(outs_a), torch.stack(outs_c)
+        starts = resets.detach().cpu().numpy() > 0.5
+        pieces = []  # (env, start, end)
+        for b in range(B):
+            cuts = [0, *[t for t in range(1, T) if starts[t, b]], T]
+            pieces += [(b, s0, s1) for s0, s1 in itertools.pairwise(cuts)]
+        lengths = torch.tensor([s1 - s0 for _, s0, s1 in pieces])
+        idx_t = torch.cat([torch.arange(s0, s1) for _, s0, s1 in pieces])
+        idx_b = torch.cat([torch.full((s1 - s0,), b) for b, s0, s1 in pieces])
+        first = torch.tensor([s0 == 0 for _, s0, _ in pieces], device=state0.device).view(1, -1, 1).float()
+        envs = torch.tensor([b for b, _, _ in pieces], device=state0.device)
+
+        def run(rnn, feats, h_env):
+            seqs = torch.split(feats[idx_t, idx_b], lengths.tolist())
+            packed = nn.utils.rnn.pack_sequence(seqs, enforce_sorted=False)
+            h0 = (h_env[envs].unsqueeze(0) * first).contiguous()  # pieces after a reset start from zeros
+            out, _ = rnn(packed, h0)
+            out, _ = nn.utils.rnn.pad_packed_sequence(out)  # (max_len, pieces, H)
+            full = feats.new_zeros(T, B, out.shape[-1])
+            for j, (b, s0, s1) in enumerate(pieces):
+                full[s0:s1, b] = out[: s1 - s0, j]
+            return full
+
+        ha_seq = run(self.actor_rnn, fa, state0[:, 0])
+        hc_seq = run(self.critic_rnn, fc, state0[:, 1])
         return self.policy(ha_seq), self.value(hc_seq).squeeze(-1)
 
     def parameter_groups(self) -> list[list[nn.Parameter]]:
@@ -93,12 +115,23 @@ class RecurrentActorCritic(nn.Module):
         }
 
 
+def _sample_step(policy: RecurrentActorCritic, obs, state):
+    logits, value, new_state = policy.step(obs, state)
+    log_probs = torch.log_softmax(logits, -1)
+    u = torch.rand_like(log_probs).clamp_(1e-10, 1.0)  # Gumbel-max sampling
+    action = (log_probs - (-u.log()).log()).argmax(-1)
+    packed = torch.stack([action.float(), log_probs.gather(-1, action[:, None]).squeeze(-1), value])
+    return packed, new_state
+
+
 class RecurrentActor:
-    """Batched action selection with per-environment memory (eager; batches are a handful of envs)."""
+    """Batched action selection with per-environment memory; CUDA graphs per batch size on a GPU."""
 
     def __init__(self, policy: RecurrentActorCritic):
         self.policy = policy
         self.device = next(policy.parameters()).device
+        self.use_graphs = self.device.type == "cuda"
+        self.graphs: dict = {}
 
     def _dev(self, items):
         obs = to_torch(stack(items))
@@ -106,12 +139,47 @@ class RecurrentActor:
             {k: v.to(self.device) for k, v in obs.items()} if isinstance(obs, dict) else obs.to(self.device)
         )
 
+    def _graph(self, obs, state):
+        b = state.shape[0]
+        if b not in self.graphs:
+            s_obs = {k: v.clone() for k, v in obs.items()} if isinstance(obs, dict) else obs.clone()
+            s_state = state.clone()
+            stream = torch.cuda.Stream()
+            stream.wait_stream(torch.cuda.current_stream())
+            with torch.no_grad():
+                with torch.cuda.stream(stream):
+                    for _ in range(2):
+                        _sample_step(self.policy, s_obs, s_state)
+                torch.cuda.current_stream().wait_stream(stream)
+                graph = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(graph):
+                    out = _sample_step(self.policy, s_obs, s_state)
+            self.graphs[b] = (graph, s_obs, s_state, out)
+        return self.graphs[b]
+
     @torch.no_grad()
     def act(self, items, state: torch.Tensor, greedy: bool = False):
-        logits, value, new_state = self.policy.step(self._dev(items), state)
-        dist = Categorical(logits=logits)
-        action = logits.argmax(-1) if greedy else dist.sample()
-        return action.cpu().numpy(), dist.log_prob(action).cpu().numpy(), value.cpu().numpy(), new_state
+        """(actions, log-probs, values, new state) for a list of observations and their memory (B, 2, H)."""
+        obs = self._dev(items)
+        if self.use_graphs and not greedy:
+            graph, s_obs, s_state, (packed, new_state) = self._graph(obs, state)
+            if isinstance(obs, dict):
+                for k in obs:
+                    s_obs[k].copy_(obs[k])
+            else:
+                s_obs.copy_(obs)
+            s_state.copy_(state)
+            graph.replay()
+            packed, new_state = packed.clone(), new_state.clone()
+        elif greedy:
+            logits, value, new_state = self.policy.step(obs, state)
+            log_probs = torch.log_softmax(logits, -1)
+            action = logits.argmax(-1)
+            packed = torch.stack([action.float(), log_probs.gather(-1, action[:, None]).squeeze(-1), value])
+        else:
+            packed, new_state = _sample_step(self.policy, obs, state)
+        out = packed.cpu().numpy()
+        return out[0].astype(np.int64), out[1], out[2], new_state
 
     @torch.no_grad()
     def values(self, items, state: torch.Tensor) -> np.ndarray:
@@ -121,8 +189,9 @@ class RecurrentActor:
 def rollout_recurrent(
     pool: WorkerPool, actor: RecurrentActor, num_steps: int, state: torch.Tensor, weights=None
 ):
-    """Lock-step segment of ``num_steps`` per worker. ``state`` (n, 2, H) is the memory carried in (already
-    cleared where a trial ended) and is updated in place. Returns per-worker arrays plus the initial memory."""
+    """One segment of ``num_steps`` per worker with asynchronous dynamic batching (whichever workers are ready
+    act together). ``state`` (n, 2, H) is the memory carried in, cleared where a trial ended, and updated in
+    place. Returns the per-worker buffers, the memory at the segment start, next values and episodes."""
     n = len(pool.conns)
     for conn in pool.conns:
         conn.send(("begin", weights))
@@ -140,25 +209,43 @@ def rollout_recurrent(
         "level_ids": np.empty((n, num_steps), np.int16),
     }
     episodes: list[dict] = []
-    for t in range(num_steps):
-        for i in range(n):
-            store(buf["obs"][i], t, obs[i])
-            buf["level_ids"][i, t] = level[i]
-        a, lp, v, new_state = actor.act(obs, state)
-        for conn, ai in zip(pool.conns, a, strict=True):
-            conn.send(("step", int(ai)))
-        buf["actions"][:, t], buf["logprobs"][:, t], buf["values"][:, t] = a, lp, v
-        state.copy_(new_state)
-        for i, (o, r, done, final, episode, lv) in enumerate(pool._gather()):
-            if final is not None:  # truncated at the end of a trial: value of the final obs, with its memory
-                buf["bootstrap"][i, t] = actor.values([final], state[i : i + 1])[0]
-            obs[i], level[i], buf["rewards"][i, t], buf["dones"][i, t] = o, lv, r, done
+    truncated = []  # (worker, step, final obs, memory) -> valued at the end
+    t = [0] * n
+    index = {conn: i for i, conn in enumerate(pool.conns)}
+    ready, waiting = list(range(n)), set()
+    while ready or waiting:
+        if ready:
+            a, lp, v, new_state = actor.act([obs[i] for i in ready], state[ready])
+            state[ready] = new_state
+            for j, i in enumerate(ready):
+                store(buf["obs"][i], t[i], obs[i])
+                buf["level_ids"][i, t[i]] = level[i]
+                buf["actions"][i, t[i]], buf["logprobs"][i, t[i]], buf["values"][i, t[i]] = a[j], lp[j], v[j]
+                pool.conns[i].send(("step", int(a[j])))
+            waiting.update(ready)
+            ready = []
+        for conn in mp_connection.wait([pool.conns[i] for i in waiting]):
+            i = index[conn]
+            status, payload = conn.recv()
+            if status == "error":
+                pool.close(force=True)
+                raise RuntimeError(payload)
+            o, r, done, final, episode, lv = payload
+            if final is not None:
+                truncated.append((i, t[i], final, state[i : i + 1].clone()))
+            obs[i], level[i], buf["rewards"][i, t[i]], buf["dones"][i, t[i]] = o, lv, r, done
             if episode is not None:
                 episodes.append(episode)
             if done:
                 state[i].zero_()  # a new trial starts: forget
-                if t + 1 < num_steps:
-                    buf["resets"][i, t + 1] = 1.0
+                if t[i] + 1 < num_steps:
+                    buf["resets"][i, t[i] + 1] = 1.0
+            waiting.discard(i)
+            t[i] += 1
+            if t[i] < num_steps:
+                ready.append(i)
+    for i, step, final, mem in truncated:
+        buf["bootstrap"][i, step] = actor.values([final], mem)[0]
     next_values = actor.values(obs, state)
     return buf, state0, next_values, episodes
 
