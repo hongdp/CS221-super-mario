@@ -439,3 +439,14 @@ encoder (222k parameters). E35 adds an auxiliary forward model: the policy's enc
 E34 is refuted (−3.0) and E35 inconclusive (+1.1; its forward-model loss falls from 0.38 to 0.04). **Across every representation and
 regularizer tried (E10-E35), held-out progress at 10M stays in a ~25-30% band.** The 22 training levels, not the input, now look
 like the bottleneck for goal B.
+
+# Goal B, few-shot metric: performance after brief practice on an unseen level
+
+From here on goal B is measured with the E30 protocol: fine-tune on each held-out level for 25k / 100k steps and report progress /
+completion (`goalB/fewshot.sh`, `goalB/fewshot_summary.py`). Reference: multi-task E28 + fine-tuning 40.5 / 3.3 at 25k, 50.8 / 7.1 at 100k.
+
+## E36: Reptile meta-learning (3 seeds)
+Meta-training: each task = 8 PPO updates (16k steps) on one training level from the meta-weights, followed by a 30% step toward the
+adapted weights, for 10M steps. Few-shot results: **40.0 / 3.3 at 25k** (E30: 40.5 / 3.3) and 52.1 / 8.1 at 100k (E30: 50.8 / 7.1).
+Refuted. Reptile adapts faster (+15 points in 25k vs +10.5), but its meta-weights start lower (zero-shot 24.9 vs 30.0, and much weaker on
+the training levels), so the two cancel.
