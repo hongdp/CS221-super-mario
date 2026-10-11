@@ -423,3 +423,18 @@ def test_end_to_end_recurrent_trials(tmp_path):
     assert {"attempt1/progress", "attempt3/progress"} <= set(rec[-1]["test"])  # all 3 attempts evaluated
     model, ckpt = load_recurrent(run_dir / "latest.pt")
     assert ckpt["model_spec"]["recurrent"] and model.hidden == 256
+
+
+def test_spec_compatibility_fills_defaults_of_newer_fields():
+    from mario_rl.ppo import _spec_with_defaults
+
+    old = {
+        "obs_type": "tiles2",
+        "obs_shape": {"grid": (4, 26, 10)},
+        "n_actions": 7,
+        "shared": False,
+        "arch": "default",
+    }
+    new = {**old, "aux": False}
+    assert _spec_with_defaults(old) == _spec_with_defaults(new)
+    assert _spec_with_defaults(old) != _spec_with_defaults({**new, "aux": True})

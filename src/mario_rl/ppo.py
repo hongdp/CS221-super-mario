@@ -255,7 +255,7 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
         model.load_state_dict(ckpt["model"])
     elif cfg.init_from:
         source = torch.load(cfg.init_from, map_location="cpu", weights_only=False)
-        if source["model_spec"] != model.spec():
+        if _spec_with_defaults(source["model_spec"]) != _spec_with_defaults(model.spec()):
             raise ValueError(f"--init-from {cfg.init_from}: model {source['model_spec']} != {model.spec()}")
         model.load_state_dict(source["model"])
     model.share_memory()  # workers read the learner's weights directly
@@ -437,6 +437,11 @@ def train(cfg: PPOConfig, env_cfg: EnvConfig) -> Path:
         pool.close()
         logger.close()
     return run_dir
+
+
+def _spec_with_defaults(spec: dict) -> dict:
+    """Model spec with the defaults of fields newer than the checkpoint (e.g. "aux"), for compatibility checks."""
+    return {"shared": False, "arch": "default", "aux": False, **spec}
 
 
 def _sync(model: ActorCritic, learner: ActorCritic) -> None:
