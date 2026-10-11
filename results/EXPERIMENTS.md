@@ -456,3 +456,8 @@ Held-out, 10 trials per level: progress on attempt 1 / 3 = 24.3 / 23.9 with memo
 at every attempt (control). **Refuted: no in-context adaptation**, not even on the training levels. A structural cause: trials span
 ~450-750 steps, but recurrent PPO backpropagates through 256-step segments only, so the learning signal cannot connect attempt 1 to attempt 3.
 Evaluations: `goalB/E37-rl2/` (script `goalB/trial_eval.py`).
+
+## E39: Reptile meta-fine-tuning starting from E28 (3 seeds)
+5M Reptile steps on top of E28's weights keep the strong start (zero-shot 28.1). Few-shot: **40.1 / 4.8 at 25k** (E30: 40.5 / 3.3), so the
+primary criterion is refuted. Stochastic completion is higher with more practice, 10.5 / 15.2 / 13.3% at 50k / 75k / 100k vs 8.6 / 9.0 / 7.1%,
+for every seed, but greedy completion does not confirm it (14.3 vs 16.2%). That is weak evidence of better reliability after longer practice.
