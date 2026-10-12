@@ -241,7 +241,9 @@ def test_simple_down_action_set():
 
 def test_maze_pays_only_for_new_ground():
     """Walking a stretch again after being sent back (as a wrong maze path does) earns nothing."""
-    with closing(MarioEnv(levels=("7-4",), obs="tiles2", noop_max=0, time_penalty=0.0)) as env:
+    with closing(
+        MarioEnv(levels=("7-4",), obs="tiles2", noop_max=0, time_penalty=0.0, maze_loop_penalty=0.0)
+    ) as env:
         env.reset(seed=0, options={"level": "7-4"})
         start = env._game.emu.get_state()
         first = sum(env.step(RIGHT)[1] for _ in range(20))
@@ -249,7 +251,7 @@ def test_maze_pays_only_for_new_ground():
         again = sum(env.step(RIGHT)[1] for _ in range(20))
         assert first > 5 and again == 0
     with closing(MarioEnv(levels=("7-4",), obs="tiles2", noop_max=0, time_penalty=0.0,
-                          maze_new_ground_reward=False)) as env:  # fmt: skip
+                          maze_new_ground_reward=False, maze_loop_penalty=0.0)) as env:  # fmt: skip
         env.reset(seed=0, options={"level": "7-4"})
         start = env._game.emu.get_state()
         first = sum(env.step(RIGHT)[1] for _ in range(20))
@@ -316,3 +318,17 @@ def test_objects_observation():
         assert goomba is not None
         assert goomba[7] == 1  # stompable
         assert -4 <= goomba[5] * 8 <= -1  # walks left at 1-4 px per agent step (level coordinates)
+
+
+def test_maze_loop_teleport_is_penalized():
+    """Being sent back by a wrong maze path costs maze_loop_penalty (scaled like a death)."""
+    with closing(MarioEnv(levels=("7-4",), obs="tiles2", noop_max=0, time_penalty=0.0)) as env:
+        env.reset(seed=0, options={"level": "7-4"})
+        start = env._game.emu.get_state()
+        for _ in range(40):
+            env.step(RIGHT)  # move far enough that returning to the start is a > 128 px jump back
+        x_far = env._game.ram()
+        assert smb.x_pos(x_far) - 40 > 128
+        env._game.emu.set_state(start)  # what a loop does: teleport back
+        _, reward, terminated, _, _ = env.step(0)
+        assert not terminated and np.isclose(reward, -env.config.maze_loop_penalty * env.config.reward_scale)

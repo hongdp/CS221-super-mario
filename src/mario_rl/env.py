@@ -101,6 +101,10 @@ class EnvConfig:
     # again. When enabled, progress there is paid only for new ground: x beyond the furthest x
     # reached in the current area (correct pipe warps forward count, loops do not).
     maze_new_ground_reward: bool = True
+    # A wrong maze path ends in a backward teleport. New-ground reward alone makes that only a waste of
+    # time, and the E27b agents looped forever on one branch. Each such teleport now costs this much
+    # (in the same units as death_penalty), so the looping branch is punished and the other one gets tried.
+    maze_loop_penalty: float = 25.0
     # Procedural level perturbation for training (goal B): as each 16 px column scrolls into view,
     # with this probability add a solid block, either a floating platform 3-4 blocks above the
     # ground or a 1-block step on it. The grid and the game's collisions both read the block
@@ -270,6 +274,7 @@ class MarioEnv(gym.Env):
         dx_total = 0
         ticks = 0
         dead = flag = False
+        loops = 0
         ram = None
         ceiling_level = cfg.block_ceiling_route and str(self.level) in CEILING_ROUTE_LEVELS
         maze_level = cfg.maze_new_ground_reward and str(self.level) in MAZE_LEVELS
@@ -291,6 +296,8 @@ class MarioEnv(gym.Env):
             dx = x - self._x_last
             # ignore teleports (pipes, sub-areas); on a ceiling-route level, running above the
             # screen earns nothing, so the dead-end ceiling route never outpays the exit pipe
+            if maze_level and dx < -128 and not smb.is_dead(ram):  # sent back by a wrong maze path
+                loops += 1
             if abs(dx) <= 8 and not maze_level and not (ceiling_level and ram[smb.PLAYER_Y_VIEWPORT] == 0):
                 dx_total += dx
             self._x_last = x
@@ -329,7 +336,7 @@ class MarioEnv(gym.Env):
             if self._steps_above >= cfg.ceiling_steps:
                 dead = True  # out of bounds on the ceiling: treated as a death
 
-        reward = dx_total - cfg.time_penalty * ticks
+        reward = dx_total - cfg.time_penalty * ticks - cfg.maze_loop_penalty * loops
         if dead:
             reward -= cfg.death_penalty
         if flag:
