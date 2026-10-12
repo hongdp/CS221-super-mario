@@ -477,3 +477,11 @@ but by less than the pre-registered +3 and within the noise of 70 episodes per p
 | E38 RL², whole-trial BPTT, 30M | — | — | +1.7 (reset −1.2) |
 None of the meta-learning methods gives a reliable few-shot gain at this compute. The only positive signals (E39 completion with longer
 practice, E38 memory effect) are small and within noise.
+
+## E40: the maze loop penalty (continuing E27b from 200M to 240M)
+E27b looped forever in the mazes (~4 backward teleports per episode, always on the same branch). `maze_loop_penalty` charges each loop
+teleport like a death. **E40a** (penalty only): no maze cleared, same loop points; non-maze greedy 74.5%. **E40b** (penalty + mid-level starts
+in the mazes): **7-4 cleared in 4/10 episodes**, the first maze clear. The loop point moved from x≈1280 to x≈2304, so the maze is learned
+section by section. All-32 greedy completion is **77.2%**, non-maze **83.8%**, and 30 of 32 levels are cleared at least once. 4-4 and 8-4 stay
+unsolved. In 4-4 the agent now tries both branches at x≈2048 and still loops, a sign that the right choice depends on state it cannot see.
+Evals: `goalA-final/E40{a,b}/`.

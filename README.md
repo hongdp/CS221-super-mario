@@ -225,7 +225,8 @@ Trained on all 29 non-maze levels with the same recipe for 100M steps (~9 h per 
 Resumed to 140M steps with an env fix for a ceiling route in 1-2/4-2 that led agents into a dead-end warp zone, it
 reaches **80% greedy completion, with 25 of 29 levels cleared at least half the time**. With a swim-control fix and
 weighted sampling of the weakest levels, it reaches **85.5% at 180M (27 of 29 levels ≥ 50%)**. The water levels 2-2/7-2
-and the three maze castles are what remain. Water levels (2-2, 7-2) and the late castles remain the hardest. Details:
+and the three maze castles are what remain. With a maze loop penalty and maze mid-level starts (E40b), the all-32 agent
+clears **7-4** and 30 of 32 levels at least once (77% greedy completion over all 32). 4-4 and 8-4 remain. Water levels (2-2, 7-2) and the late castles remain the hardest. Details:
 [`results/EXPERIMENTS.md`](results/EXPERIMENTS.md).
 
 ### Directions to improve generalization
