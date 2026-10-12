@@ -443,7 +443,7 @@ like the bottleneck for goal B.
 # Goal B, few-shot metric: performance after brief practice on an unseen level
 
 From here on goal B is measured with the E30 protocol: fine-tune on each held-out level for 25k / 100k steps and report progress /
-completion (`goalB/fewshot.sh`, `goalB/fewshot_summary.py`). Reference: multi-task E28 + fine-tuning 40.5 / 3.3 at 25k, 50.8 / 7.1 at 100k.
+completion (`scripts/fewshot.sh`, `scripts/fewshot_summary.py`). Reference: multi-task E28 + fine-tuning 40.5 / 3.3 at 25k, 50.8 / 7.1 at 100k.
 
 ## E36: Reptile meta-learning (3 seeds)
 Meta-training: each task = 8 PPO updates (16k steps) on one training level from the meta-weights, followed by a 30% step toward the
@@ -455,7 +455,7 @@ the training levels), so the two cancel.
 Held-out, 10 trials per level: progress on attempt 1 / 3 = 24.3 / 23.9 with memory kept (−0.4), and 25.3 / 24.4 when the memory is reset
 at every attempt (control). **Refuted: no in-context adaptation**, not even on the training levels. A structural cause: trials span
 ~450-750 steps, but recurrent PPO backpropagates through 256-step segments only, so the learning signal cannot connect attempt 1 to attempt 3.
-Evaluations: `goalB/E37-rl2/` (script `goalB/trial_eval.py`).
+Evaluations: `goalB/E37-rl2/` (script `scripts/trial_eval.py`).
 
 ## E39: Reptile meta-fine-tuning starting from E28 (3 seeds)
 5M Reptile steps on top of E28's weights keep the strong start (zero-shot 28.1). Few-shot: **40.1 / 4.8 at 25k** (E30: 40.5 / 3.3), so the

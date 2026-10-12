@@ -1,6 +1,6 @@
 """Trial evaluation of a recurrent (RL^2) checkpoint: K attempts per trial, memory kept across attempts, no learning.
 
-usage: python experiments/trial_eval.py CHECKPOINT OUT.json [--levels test] [--trials 10] [--envs 10]
+usage: python scripts/trial_eval.py CHECKPOINT OUT.json [--levels test] [--trials 10] [--envs 10]
 """
 
 import argparse
@@ -22,8 +22,12 @@ if __name__ == "__main__":
     ap.add_argument("--levels", default="test")
     ap.add_argument("--trials", type=int, default=10)
     ap.add_argument("--envs", type=int, default=10)
-    ap.add_argument("--memory", choices=["keep", "reset"], default="keep",
-                    help="reset = clear the memory at every attempt (ablation: is the improvement in-context?)")
+    ap.add_argument(
+        "--memory",
+        choices=["keep", "reset"],
+        default="keep",
+        help="reset = clear the memory at every attempt (ablation: is the improvement in-context?)",
+    )
     a = ap.parse_args()
     model, ckpt = load_recurrent(a.checkpoint)
     model = model.cuda() if torch.cuda.is_available() else model
@@ -44,7 +48,12 @@ if __name__ == "__main__":
             results = evaluate_trials(pool, RecurrentActor(model), parse_levels(a.levels), a.trials, attempts)
     finally:
         pool.close()
-    report = {"checkpoint": a.checkpoint, "global_step": ckpt["global_step"], "memory": a.memory, "attempts": attempts}
+    report = {
+        "checkpoint": a.checkpoint,
+        "global_step": ckpt["global_step"],
+        "memory": a.memory,
+        "attempts": attempts,
+    }
     for k in range(attempts):
         eps = [e for e in results if e["attempt"] == k]
         per = {}
@@ -53,8 +62,23 @@ if __name__ == "__main__":
         report[f"attempt{k + 1}"] = {
             "progress": float(np.mean([np.mean([e["progress"] for e in v]) for v in per.values()])),
             "completion": float(np.mean([np.mean([e["flag_get"] for e in v]) for v in per.values()])),
-            "levels": {L: {"progress": float(np.mean([e["progress"] for e in v])), "completion": float(np.mean([e["flag_get"] for e in v])), "n": len(v)} for L, v in sorted(per.items())},
+            "levels": {
+                L: {
+                    "progress": float(np.mean([e["progress"] for e in v])),
+                    "completion": float(np.mean([e["flag_get"] for e in v])),
+                    "n": len(v),
+                }
+                for L, v in sorted(per.items())
+            },
         }
     with open(a.output, "w") as f:
         json.dump(report, f, indent=1)
-    print(json.dumps({k: {m: round(v[m], 3) for m in ("progress", "completion")} for k, v in report.items() if k.startswith("attempt") and isinstance(v, dict)}))
+    print(
+        json.dumps(
+            {
+                k: {m: round(v[m], 3) for m in ("progress", "completion")}
+                for k, v in report.items()
+                if k.startswith("attempt") and isinstance(v, dict)
+            }
+        )
+    )
