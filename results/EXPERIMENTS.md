@@ -216,3 +216,272 @@ palette jitter) to compete, if they can at all.
 
 Plot: `comparisons/obs_3m.png`. No variant has completed a held-out level yet. The biggest
 remaining problem is generalization from only 22 training levels.
+
+# 10M-step study (E11-E20), 2026-10-05/06
+
+All runs: `tiles2`, 8 envs × 256 steps, 10M env steps, every 1M checkpoint re-evaluated with 10 stochastic
+episodes per level. "Held-out late" = mean held-out progress over the 6-10M checkpoints, which smooths the ~2-point
+noise of single checkpoints. Per-checkpoint evals and configs are in `10m-study/<run>/`. Full per-run records
+(purpose, pre-registered criteria, progress) were kept locally in `experiments/` (gitignored).
+From E12's second half on, the PPO update runs on the GPU (`--device`). From E15 on, actions are also chosen on the
+GPU (`--inference batched`). A 100-150k-step A/B showed matching learning curves for both changes.
+
+## E11: tiles2 uniform to 10M — does held-out keep rising?
+No. Held-out plateaus at 20-24% from 2M on, while train progress climbs from 33% to 68%, so the gap grows from 13 to
+47 points. Longer training only adds memorization. (E9's apparent "still rising" at 3M was noise.)
+
+## E12, E15, E16: Prioritized Level Replay (β=0.1) vs uniform, 3 seeds
+
+| seed | uniform held-out late | PLR held-out late | Δ |
+|---|---|---|---|
+| 1 (E11 / E12) | 20.3 | 28.0 | +7.7 |
+| 2 (E15 / E16) | 21.8 | 22.0 | +0.1 |
+| 3 (E15 / E16) | 22.3 | 23.3 | +1.1 |
+| mean | 21.5 ± 1.0 | 24.4 ± 3.2 | +2.95 |
+
+A small, consistent gain (pre-registered bar: +3). E12's +7.7 was a lucky seed. PLR costs ~3 points of train
+completion. At β=0.1 PLR is near-greedy: rank^-10 puts ~90% of samples on one level.
+
+## E13: DrAC random-shift augmentation (±4 cells)
+Held-out late 23.3 vs 20.3 (seed 1), mostly from the held-out castle 6-4 (~20 → 30-45%). Train completion went up
+(35% vs 28%). The policy became shift-robust but kept memorizing. Missed its bar by 0.5 points.
+
+## E14: IMPALA-style residual encoder
+Refuted. It learns training levels much more slowly at equal steps (56% vs 68% at 10M), gives no held-out gain
+(20.4 late), and is 1.7x slower. Its smaller gap only reflects underfitting.
+
+## E17: PLR temperature (seed 1)
+β=0.1 / 0.3 / 1.0 → held-out late 28.0 / 24.1 / 26.0, all within PLR's ±3 seed spread. β=1.0 is the only soft
+setting: max level weight 24%, no level below 1%. If PLR is used, β=1.0 is the safer default.
+
+## E18: PLR + DrAC (seed 1)
+Held-out late 29.4 (PLR alone 28.0): the best single run, but +1.4 is within seed noise.
+
+## E19: held-out failure analysis — is the grid the problem?
+140 episodes of the best checkpoint on held-out levels, with screen | grid | overlay snapshots before each failure
+(`10m-study/E19-failure-analysis/`). The grid is exactly aligned, and the cause of death was visible in it in every
+inspected case. Failures cluster at single obstacles: all 20 episodes of 3-3 die in one gap, 11/20 of 4-2 in one gap,
+and piranha plants on pipes in 2-1/5-1/6-2. The agent sees these obstacles but has memorized training-level timing
+instead of learning obstacle skills. One encoding flaw: classes are exclusive, so an object overwrites terrain (a
+piranha erases the solid pipe top). Power-ups and ?-blocks are not represented (by design).
+
+## E20: egocentric window (4 cells behind / 12 ahead of Mario), uniform, 3 seeds
+Hypothesis from E19: the full-screen grid gives the network enough layout to fingerprint its position, and a
+Mario-anchored window removes that while keeping what the decision needs.
+
+| seed | full screen held-out late | ego held-out late | Δ |
+|---|---|---|---|
+| 1 | 20.3 | 26.2 | +5.8 |
+| 2 | 21.8 | 26.9 | +5.0 |
+| 3 | 22.3 | 23.3 | +1.0 |
+| mean | 21.5 ± 1.0 | **25.4 ± 1.9** | **+3.95** |
+
+Supported, meeting every pre-registered criterion. Train progress is unchanged (62.6 vs 63.9), so the gap shrinks from 42 to
+37 points. Gains are broad (2-1 25→32, 3-3 18→26, 6-4 16→21, 7-1 34→39). This is the first intervention that improves
+transfer without trading anything away. Plot: `10m-study/families_10m.png`.
+
+## Summary
+
+| intervention (vs full-screen uniform) | held-out late | train cost | seeds |
+|---|---|---|---|
+| longer training (3M → 10M) | no gain | — | 1 |
+| PLR β=0.1 | +2.95 | −3 pts completion | 3 |
+| DrAC shift | +3.0 | none (train up) | 1 |
+| IMPALA encoder | +0.1 | −12 pts progress | 1 |
+| **egocentric window 4/12** | **+3.95** | **none** | **3** |
+
+
+## E21, E22: window size and ego + PLR (3 seeds each)
+
+| config | held-out late | per-seed Δ vs ego 4/12 | train completion @10M | gap |
+|---|---|---|---|---|
+| full screen | 21.5 ± 1.0 | −5.8 / −5.0 / −1.0 | 29.1 | 42.4 |
+| ego 4/12 (E20) | 25.4 ± 1.9 | — | 29.2 | 37.1 |
+| **ego 2/8** | **30.2 ± 1.2** | **+4.3 / +4.4 / +5.6** | **20.8** | **28.8** |
+| ego 6/16 | 27.7 ± 3.5 | −1.6 / 0.0 / +8.3 | 29.2 | 36.3 |
+| ego 4/12 + PLR β=1.0 | 25.1 ± 3.4 | −0.7 / +1.5 / −1.7 | 25.8 | 36.5 |
+
+- **2/8 gives the best transfer of the project**: +8.7 over full screen, better than 4/12 for every seed, with the
+  smallest spread. It costs 8 points of training-level completion, because 64 px of lookahead is less than a full
+  running jump.
+- 6/16 is inconclusive: one seed at +8.3 and the other two at or below 4/12.
+- PLR adds nothing on top of the window (refuted) and again costs train completion. It is dropped from the recipe.
+- **Trade-off**: a narrow view is best for unseen levels (goal B), while a wider lookahead is needed to clear levels (goal A).
+
+
+# Goal A: clearing the training levels
+
+## E23: mid-level starts (`--mid-start-prob 0.5`), ego 4/12, 3 seeds
+Every episode used to start at the level start and die around 50-60% of the level, so the late sections got little
+practice. E23 started half of the training episodes from archived mid-level states. **Refuted**: training-level
+completion fell from 29.2 (E20) to 26.1, lower for every seed. Static levels gained (1-4 50→73%, 5-2 3→17%, first
+completions of 1-2, 2-2, 8-2 and 8-3), but athletic lift levels collapsed (1-3 67→0%, 4-3 17→0%). Diagnosis: after
+loading a state, reset still ran 0-30 random idle frames, and states were archived while Mario stood on lifts. Restarts on
+lift levels were therefore often doomed: death within 40 steps of a 1-3 restart was 41% as trained, 19% without idle
+frames, and 7% after fixing both flaws. E24 re-tests the fixed version.
+
+## E24: fixed mid-level starts, 3 seeds
+Same as E23 with both flaws fixed. **Refuted again**: train completion is 28.0 vs 29.2 for E20 (+4.5 / −2.7 / −5.5 per seed).
+The fix rescued 4-3 (0 → 23%), but 1-3 stays at 0/30 (E20: 19/30). Its lift sections are never archived, so they are
+only practised from level starts, and those are halved. At this budget the static-level gains (1-4 +20, 3-4 +13)
+are cancelled by the lost level-start practice. For goal A, mid-level starts are shelved. The next step is a long
+run (100M steps) with the E20 recipe on all 29 non-maze levels, since train progress was still rising 2.5-4.3 points/M at 10M.
+
+## E25: goal A long run — 29 non-maze levels, ego 4/12, 100M steps, 2 seeds
+The E20 recipe unchanged (uniform sampling, no mid-starts), trained on every non-maze level for 100M env steps (~9 h,
+two seeds side by side on one RTX 4080 + 12-core CPU). Evaluation from the level start, 10 episodes per level:
+
+| steps | completion (seed 1 / 2) | levels completed ≥1× | levels ≥50% |
+|---|---|---|---|
+| 10M | 14.1 / 10.7 | 13 / 8 | 3 / 3 |
+| 50M | 44.1 / 36.9 | 22 / 21 | 13 / 11 |
+| 100M | **66.2 / 63.8** | 24 / 26 | 21 / 19 |
+| 100M, greedy actions | **70.7 / 71.0** | 24 / 23 | 22 / 21 (13 / 16 at 100%) |
+
+All pre-registered targets were met (≥50% completion, ≥25 levels cleared at least once, stretch ≥20 levels ≥50%). Training
+length was the bottleneck for goal A, and the curve was still rising at 100M. Remaining failures: **1-2 and 4-2 are an env
+trap**. The agent runs on top of the ceiling into the warp zone (90-100% progress, never the flag), because warp pipes
+need DOWN and lead to other worlds. This is now blocked by `block_ceiling_route`. Also failing: the water levels 2-2 and
+7-2 (0%), the 6-4 castle, and the seed-dependent 8-1 and 8-3. Per-checkpoint evals: `goalA-100m/`.
+
+**Phases 2-3**: both seeds resumed to 120M with ceiling fix v1, then to 140M with v2. In v2, progress above the screen
+earns nothing on 1-2/4-2. In v1, Mario bobbing on the top edge kept resetting the counter, so the ceiling run still
+outpaid the exit pipe.
+
+| checkpoint | greedy completion (seed 1 / 2) | levels ≥50% | 1-2 | 4-2 |
+|---|---|---|---|---|
+| 100M | 70.7 / 71.0 | 22 / 21 | 0 / 0 | 0 / 0 |
+| 120M (fix v1) | 75.5 / 76.6 | 22 / 22 | 0 / 0 | 100 / 70 (stoch.) |
+| **140M (fix v2)** | **80.7 / 79.3** | **25 / 25** | **90 / 70** | **100 / 100** |
+
+Still below 50% (greedy): the water levels 2-2 and 7-2, the castle 6-4, and 8-1 / 7-1 (one seed each).
+
+## E26: why 2-2, 7-2 and 6-4 still fail (140M, seed 1)
+The grid is accurate in all three. **6-4**: 13/16 failures happen at the Bowser bridge (90% progress), a skill gap at one spot.
+**Water**: a control flaw. Swim strokes trigger on a new A press, but the 4-frame action repeat makes consecutive A actions
+one long hold, so holding "A" sinks Mario to the floor of 2-2 within ~20 steps unless the agent alternates A and no-op.
+Fixed by `EnvConfig.swim_tap` (default on): A is released on the last frame of each step while swimming. Land jumps are unchanged.
+
+## E25 phases 4-5 (140M → 180M)
+Phase 4 resumed with `swim_tap`. Phase 5 used weighted level sampling, weight = 0.2 + (1 − greedy completion) per level,
+which gives the weakest levels 8-11% of episodes each instead of 3.4%.
+
+| checkpoint | greedy completion (seed 1 / 2) | levels ≥50% | below 50% |
+|---|---|---|---|
+| 160M (swim_tap) | 81.4 / 81.4 | 26 / 25 | 2-2, 7-2, 8-1 (+ 6-4 seed 2) |
+| **180M (weighted)** | **87.2 / 83.8** | **27 / 26** | 2-2, 7-2 (+ 8-3 seed 2) |
+
+Targeted practice fixed 8-1 (0 → 70 / 30 → 90) and 6-4 (seed 2: 20 → 80). **The water levels stay at 0-30%** despite the swim
+fix and ~3x the practice.
+
+**Maze castles (not yet trained).** A probe with the 140M policy shows that in 7-4 every wrong path teleports Mario back
+and the walk forward is paid again, so looping farms reward until the stuck limit. The correct 8-4 route needs DOWN
+(pipes), which `simple` lacks. Clearing the mazes needs (1) a new-ground-only progress reward on maze levels and (2) an
+action set with DOWN, which means a new training run because the policy output changes.
+
+# Goal B: unseen levels, continued (corrected env)
+
+## E28, E29: terrain perturbation (3 seeds each)
+E28 re-establishes the baseline under the corrected env (hammers visible, swim fix, ceiling fix): ego 2/8 window,
+held-out **28.2 ± 2.2** (E21 under the old env: 30.2 ± 1.2). E29 adds `terrain_noise 0.1`, random extra blocks (floating platforms,
+1-block steps) written into the block buffer as columns scroll in, so the agent sees and collides with them. **Refuted**:
+held-out 25.9 ± 3.1 (−2.2, worse for every seed), and train progress drops by 7. The extra blocks make training harder but are not the kind of
+hazard that kills on held-out levels (gaps, piranha plants, lifts).
+
+## E31: 16-frame history (3 seeds)
+Meant to give the policy timing information (piranha cycles take 2-3 s, while 4 frames cover 0.27 s). **Refuted**: held-out 21.5 ± 3.3
+(−6.7 vs E28, worse for every seed), worse on the piranha levels too. Across E10/E20/E21/E31, every increase in input size hurt
+transfer and every reduction helped.
+
+## E30: few-shot fine-tuning on held-out levels (pretrained E28 vs scratch, 3 seeds × 7 levels)
+| practice steps | pretrained progress / completion | scratch progress / completion |
+|---|---|---|
+| 0 | 30.0 / 2.4 | — |
+| 25k (≈ 28 min of play) | **40.5** / 3.3 | 14.3 / 0 |
+| 100k (≈ 1.9 h) | **50.8** / 7.1 (greedy 16.2) | 20.3 / 0 |
+
+The 22-level pretraining transfers. It gives a 2.5x head start in progress at every budget. But it is shallow: even after
+100k steps on a level the agent rarely clears it (best: 5-1 at 30%). Per-run evals are in `goalB/E30-fewshot/`.
+
+## E32, E33: how far does shrinking the input help? (3 seeds each)
+| | held-out (6-10M) | Δ vs E28 per seed | train progress |
+|---|---|---|---|
+| E28: 2/8 window, 4 frames | 28.2 ± 2.2 | — | 59.9 |
+| E32: 2/8 window, 2 frames | 29.3 ± 1.3 | +2.1 / +2.6 / −1.4 | 60.5 |
+| E33: 2/6 window, 4 frames | 25.7 ± 5.0 | −7.0 / +5.5 / −6.0 | 54.1 |
+
+Both are in the pre-registered plateau band. Two frames are as good as four. A 48 px lookahead starts to hide what a jump needs. **The
+input-size lever is exhausted at ~28-29% held-out progress.**
+
+## E27: failed run (reward exploit), re-run as E27b
+The first final goal-A run was stopped at ~75M (0-9% completion). Stepping left of the 4-4 level start underflowed the x page
+byte (x ≈ 65533). The new-ground maze reward paid it (≈ 6450 in one step), and the giant returns blew up the reward normalizer. Fixed
+(`x_pos` signed, new-ground reward capped at 512 px). A scan of 14.5k past level evaluations found no contamination. E27b is the same config on the fixed code.
+
+## E27b: goal A final run from scratch (all 32 levels, every fix, 200M steps)
+Greedy completion **63.8% on all 32 levels, 70.3% on the 29 non-maze levels**. That is below the patched E25 lineage (85.5%).
+Water levels 10-20%, mazes 0% (progress 37-70%). The completion sampler spent 12-20% of episodes on the still-unsolved
+mazes, and the extra DOWN action enlarges every level's action space. The curve was still rising at 200M. The mazes need
+dedicated route analysis. The best goal-A agent remains E25 @180M. Files: `goalA-final/`.
+
+## E34, E35: object-centric observation and an auxiliary world model (3 seeds each)
+`obs="objects"`: a Mario-relative terrain profile (pit flag + the 3 nearest walkable surfaces per 16 px column, 1 behind / 7 ahead)
+plus the 12 nearest entities with class, relative position, size and level-frame velocity, and a permutation-invariant set
+encoder (222k parameters). E35 adds an auxiliary forward model: the policy's encoder also predicts the next observation from
+(observation, action).
+
+| | held-out (6-10M) | per-seed Δ | train progress |
+|---|---|---|---|
+| E28: grid, ego 2/8 | 28.2 ± 2.2 | — | 59.9 |
+| E34: objects | 25.2 ± 0.4 | −3.0 / −0.7 / −5.2 vs E28 | 59.7 |
+| E35: objects + forward model | 26.3 ± 1.4 | +0.3 / +2.7 / +0.2 vs E34 | 57.7 |
+
+E34 is refuted (−3.0) and E35 inconclusive (+1.1; its forward-model loss falls from 0.38 to 0.04). **Across every representation and
+regularizer tried (E10-E35), held-out progress at 10M stays in a ~25-30% band.** The 22 training levels, not the input, now look
+like the bottleneck for goal B.
+
+# Goal B, few-shot metric: performance after brief practice on an unseen level
+
+From here on goal B is measured with the E30 protocol: fine-tune on each held-out level for 25k / 100k steps and report progress /
+completion (`goalB/fewshot.sh`, `goalB/fewshot_summary.py`). Reference: multi-task E28 + fine-tuning 40.5 / 3.3 at 25k, 50.8 / 7.1 at 100k.
+
+## E36: Reptile meta-learning (3 seeds)
+Meta-training: each task = 8 PPO updates (16k steps) on one training level from the meta-weights, followed by a 30% step toward the
+adapted weights, for 10M steps. Few-shot results: **40.0 / 3.3 at 25k** (E30: 40.5 / 3.3) and 52.1 / 8.1 at 100k (E30: 50.8 / 7.1).
+Refuted. Reptile adapts faster (+15 points in 25k vs +10.5), but its meta-weights start lower (zero-shot 24.9 vs 30.0, and much weaker on
+the training levels), so the two cancel.
+
+## E37: in-context meta-RL (RL²: GRU policy, trials of 3 attempts; 3 seeds)
+Held-out, 10 trials per level: progress on attempt 1 / 3 = 24.3 / 23.9 with memory kept (−0.4), and 25.3 / 24.4 when the memory is reset
+at every attempt (control). **Refuted: no in-context adaptation**, not even on the training levels. A structural cause: trials span
+~450-750 steps, but recurrent PPO backpropagates through 256-step segments only, so the learning signal cannot connect attempt 1 to attempt 3.
+Evaluations: `goalB/E37-rl2/` (script `goalB/trial_eval.py`).
+
+## E39: Reptile meta-fine-tuning starting from E28 (3 seeds)
+5M Reptile steps on top of E28's weights keep the strong start (zero-shot 28.1). Few-shot: **40.1 / 4.8 at 25k** (E30: 40.5 / 3.3), so the
+primary criterion is refuted. Stochastic completion is higher with more practice, 10.5 / 15.2 / 13.3% at 50k / 75k / 100k vs 8.6 / 9.0 / 7.1%,
+for every seed, but greedy completion does not confirm it (14.3 vs 16.2%). That is weak evidence of better reliability after longer practice.
+
+## E38: RL² v2 — whole trials inside the BPTT window (2 attempts, 1024-step segments, 30M steps, 2 seeds)
+Held-out, 10 trials per level: attempt 2 − attempt 1 = **+1.7** with memory kept (+1.4 / +2.0) vs −1.2 with memory reset, so kept − reset is
++2.9. On the training levels kept − reset is −1.0. **Inconclusive**: memory now moves held-out play in the expected direction for both seeds,
+but by less than the pre-registered +3 and within the noise of 70 episodes per point, and not at all on the training levels.
+
+## Goal B, few-shot metric: summary
+| method (vs multi-task E28 + fine-tuning) | few-shot progress @25k | completion @100k | in-context gain |
+|---|---|---|---|
+| E30 multi-task baseline | 40.5 | 7.1 | — |
+| E36 Reptile from scratch | 40.0 | 8.1 | — |
+| E39 Reptile from E28 | 40.1 | 13.3 (greedy 14.3 vs 16.2) | — |
+| E37 RL², 256-step BPTT | — | — | −0.4 (≈ memory reset) |
+| E38 RL², whole-trial BPTT, 30M | — | — | +1.7 (reset −1.2) |
+None of the meta-learning methods gives a reliable few-shot gain at this compute. The only positive signals (E39 completion with longer
+practice, E38 memory effect) are small and within noise.
+
+## E40: the maze loop penalty (continuing E27b from 200M to 240M)
+E27b looped forever in the mazes (~4 backward teleports per episode, always on the same branch). `maze_loop_penalty` charges each loop
+teleport like a death. **E40a** (penalty only): no maze cleared, same loop points; non-maze greedy 74.5%. **E40b** (penalty + mid-level starts
+in the mazes): **7-4 cleared in 4/10 episodes**, the first maze clear. The loop point moved from x≈1280 to x≈2304, so the maze is learned
+section by section. All-32 greedy completion is **77.2%**, non-maze **83.8%**, and 30 of 32 levels are cleared at least once. 4-4 and 8-4 stay
+unsolved. In 4-4 the agent now tries both branches at x≈2048 and still loops, a sign that the right choice depends on state it cannot see.
+Evals: `goalA-final/E40{a,b}/`.

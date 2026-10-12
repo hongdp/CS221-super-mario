@@ -1,0 +1,17 @@
+{
+  "checkpoint": "experiments/E30-goalB-fewshot-finetune_20261008_003814/runs/s2_7-1_pretrained/ckpt_51200.pt",
+  "global_step": 51200,
+  "7-1": {
+    "progress": 0.5945644834571235,
+    "completion": 0.2,
+    "levels": {
+      "7-1": {
+        "progress": 0.5945644834571235,
+        "completion": 0.2,
+        "return": 165.20999999999975,
+        "length": 190.5,
+        "episodes": 10
+      }
+    }
+  }
+}

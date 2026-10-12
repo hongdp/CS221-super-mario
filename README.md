@@ -37,6 +37,11 @@ tensorboard --logdir runs
 ```
 
 Without uv: `pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install -e ".[dev]"`.
+**GPU**: install a CUDA build of torch over the CPU one, e.g.
+`uv pip install --reinstall-package torch torch --index-url https://download.pytorch.org/whl/cu130`.
+With a GPU present, the PPO update and action selection move there automatically (`--device auto`, `--inference auto`).
+The best observations so far are egocentric windows: `--ego-back 2 --ego-ahead 8` for unseen levels,
+`--ego-back 4 --ego-ahead 12` for clearing the training levels (see Results).
 `mario-rl train --help` lists every option; they map 1:1 onto `EnvConfig` and `PPOConfig`.
 
 Using the environment directly:
@@ -99,13 +104,22 @@ held-out levels have relatives in the training set.
 - Truncated episodes (time limit or stuck) bootstrap from the value of the final observation.
   Only deaths and flags are treated as terminal.
 - `--level-sampler plr` turns on Prioritized Level Replay. It ranks levels by mean |GAE| of their
-  latest episode (β=0.1) and mixes in a staleness term (ρ=0.1).
+  latest episode (β=0.1) and mixes in a staleness term (ρ=0.1). Note that β=0.1 is near-greedy;
+  `--plr-temperature 1.0` gives a soft distribution.
+- Options studied in E13-E20: `--ego-back/--ego-ahead` (Mario-anchored window of the tiles2 grid),
+  `--aug-shift/--aug-coef` (DrAC random horizontal shifts), `--arch impala` (residual encoder).
 - **Throughput design**: the emulator runs at about 3000 frames/s per core, about 6.7x faster
   than nes-py's LaiNES. On small CPU machines, Gymnasium's lock-step `AsyncVectorEnv` loses more
   than half of that to per-step synchronization. So each worker process owns one emulator plus a
   reference to the learner's *shared-memory* policy, collects a whole rollout locally, and sends
   it back in one message. On a 4-vCPU VM without a GPU this gives about 650 env steps/s
   (2600 emulated frames/s) end-to-end with the decoupled actor/critic, PPO updates included.
+- **With a GPU** (`inference.py`): the learner picks the actions. Workers only emulate; the main
+  process waits for whichever workers are ready (asynchronous dynamic batching, so a slow reset in
+  one worker stalls no one) and runs one forward pass per batch. That pass replays a CUDA graph
+  captured per batch size, about 4x faster than eager for these tiny batches. The policy is fixed within a
+  segment, so this is exactly on-policy. On a Ryzen 3900X + RTX 4080 with 8 envs: ~3650 env steps/s
+  (vs ~990 with the CPU learner); three runs side by side reach ~7500 steps/s in total.
 
 ## Results
 
@@ -181,12 +195,48 @@ points are noise.
 - **Sticky actions do not help held-out levels.** Training levels are slightly better and held-out
   levels are no better. The memorization is not merely open-loop button sequences.
 
+### 10M-step study (E11-E20)
+
+![families](results/10m-study/families_10m.png)
+
+| change vs full-screen `tiles2`, uniform sampling (10M steps) | held-out progress, 6-10M mean | train cost | seeds |
+|---|---|---|---|
+| baseline | 21.5 ± 1.0 | — | 3 |
+| train longer (held-out plateaus from 2M) | no gain | — | 1 |
+| PLR (β=0.1) | +2.95 | −3 pts completion | 3 |
+| DrAC random shifts | +3.0 | none | 1 |
+| IMPALA encoder | +0.1 | −12 pts progress | 1 |
+| **egocentric window, 4 behind / 12 ahead** | **+3.95 (25.4 ± 1.9)** | **none** | **3** |
+| egocentric window, 6 behind / 16 ahead | +6.2 (27.7 ± 3.5; one-seed driven) | none | 3 |
+| **egocentric window, 2 behind / 8 ahead** | **+8.7 (30.2 ± 1.2)** | −8 pts completion | 3 |
+| window 4/12 + PLR β=1.0 | +3.6 (no gain over the window alone) | −3 pts completion | 3 |
+
+- A failure analysis (E19) found the grid exactly aligned, with the cause of every inspected held-out death
+  visible in it. The agent dies at the *same* gap or piranha plant in almost every episode. It has memorized
+  training-level timing instead of learning obstacle skills.
+- Showing the network only a Mario-anchored window removes most of the layout it could memorize.
+  Held-out progress rises for all three seeds while training-level progress is unchanged.
+- Details and the pre-registered criteria for each run: [`results/EXPERIMENTS.md`](results/EXPERIMENTS.md).
+
+### Goal A: clearing the game (E25)
+
+Trained on all 29 non-maze levels with the same recipe for 100M steps (~9 h per seed on one GPU), the agent completes
+**66% of level attempts (71% with greedy actions)**. Training length was the bottleneck, and the curve is still rising.
+Resumed to 140M steps with an env fix for a ceiling route in 1-2/4-2 that led agents into a dead-end warp zone, it
+reaches **80% greedy completion, with 25 of 29 levels cleared at least half the time**. With a swim-control fix and
+weighted sampling of the weakest levels, it reaches **85.5% at 180M (27 of 29 levels ≥ 50%)**. The water levels 2-2/7-2
+and the three maze castles are what remain. With a maze loop penalty and maze mid-level starts (E40b), the all-32 agent
+clears **7-4** and 30 of 32 levels at least once (77% greedy completion over all 32). 4-4 and 8-4 remain. Water levels (2-2, 7-2) and the late castles remain the hardest. Details:
+[`results/EXPERIMENTS.md`](results/EXPERIMENTS.md).
+
 ### Directions to improve generalization
 
-- `--level-sampler plr`: Prioritized Level Replay (implemented, not yet evaluated).
-- More randomness inside each level, such as starting episodes from mid-level states or augmenting
-  the grid (random translations, tile dropout).
-- More compute. Mario is sample-hungry, and the main run gave each training level only about 360k steps.
+- Narrower windows transfer better but see less ahead: 2/8 is best for unseen levels, while clearing
+  levels needs the 4/12 lookahead. Try asymmetric windows (e.g. 2/12).
+- Mid-level starts (`--mid-start-prob`) so the late sections of levels get practice (E23, running).
+- Procedurally perturbed training levels (shift gaps, enemy placement and timing via RAM edits at
+  reset), so that memorizing routes stops working.
+- A non-exclusive grid encoding (terrain and object planes), so hazards no longer overwrite solid ground.
 
 ## Project layout
 
@@ -198,8 +248,10 @@ src/mario_rl/
   obs.py        helpers so array and dict observations share one code path
   levels.py     levels, goal distances, train / test splits
   env.py        Gymnasium MarioEnv (+ "MarioRL/SuperMarioBros-v0" registration)
-  models.py     actor-critic networks (tiles / tiles2 / pixels)
-  workers.py    rollout workers with in-process policy inference
+  models.py     actor-critic networks (tiles / tiles2 / pixels; optional IMPALA encoder)
+  workers.py    rollout workers: in-worker CPU inference, or learner-driven batched rollouts
+  inference.py  batched action selection on the GPU with CUDA graphs
+  augment.py    DrAC random-shift augmentation
   plr.py        uniform / prioritized level sampling
   ppo.py        PPO training loop, checkpoints, evaluation
   evaluate.py   per-level summaries; plotting.py: curves; cli.py: `mario-rl` entry point

@@ -24,3 +24,6 @@ venv/
 # Training outputs (checkpoints, logs, TensorBoard). Curated results live in results/.
 runs/
 *.tmp
+
+# Per-run experiment records + artifacts (conclusions go to results/EXPERIMENTS.md)
+experiments/

@@ -119,13 +119,111 @@ class TileEncoderV2(nn.Module):
         return self.fc(torch.cat([self.net(grid), vec], dim=-1))
 
 
-def _encoder(obs_type: str, obs_shape) -> nn.Module:
+class _ResBlock(nn.Module):
+    def __init__(self, channels: int):
+        super().__init__()
+        self.conv0 = _init(nn.Conv2d(channels, channels, 3, padding=1))
+        self.conv1 = _init(nn.Conv2d(channels, channels, 3, padding=1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.conv1(torch.relu(self.conv0(torch.relu(x))))
+
+
+class TileEncoderImpala(nn.Module):
+    """IMPALA-style residual CNN (Espeholt et al. 2018) for the tiles2 observation.
+
+    Compared with TileEncoderV2: full 8px resolution in the first layer (no stride-2 conv),
+    three conv/max-pool/residual stages, and a much smaller position-specific FC
+    (4x4 spatial map instead of 7x8), so most parameters are shared across positions.
+    Cobbe et al. (2019) found this network generalizes far better than the Nature CNN on Procgen.
+    """
+
+    def __init__(self, obs_shape: dict, hidden: int = 256, channels: tuple[int, ...] = (16, 32, 32)):
+        super().__init__()
+        stack, rows, cols = obs_shape["grid"]
+        n_vec = obs_shape["vec"][0]
+        layers: list[nn.Module] = []
+        c_in = stack * NUM_TILE_TYPES2
+        for c in channels:
+            layers += [
+                _init(nn.Conv2d(c_in, c, 3, padding=1)),
+                nn.MaxPool2d(3, stride=2, padding=1),  # 26x32 -> 13x16 -> 7x8 -> 4x4
+                _ResBlock(c),
+                _ResBlock(c),
+            ]
+            c_in = c
+        self.net = nn.Sequential(*layers, nn.ReLU(), nn.Flatten())
+        with torch.no_grad():
+            n_flat = self.net(torch.zeros(1, stack * NUM_TILE_TYPES2, rows, cols)).shape[1]
+        self.fc = nn.Sequential(_init(nn.Linear(n_flat + n_vec, hidden)), nn.ReLU())
+        self.out_dim = hidden
+
+    preprocess = staticmethod(TileEncoderV2.preprocess)
+    forward = TileEncoderV2.forward
+
+
+class ObjectEncoder(nn.Module):
+    """Encoder for the ``objects`` observation (see objects.py).
+
+    terrain (B, C, F): a 1-D conv over the Mario-relative columns; ents (B, K, F): a shared per-entity
+    MLP followed by masked mean + max pooling (permutation invariant, any number of entities);
+    vec: Mario's state. Everything is concatenated into one hidden layer.
+    """
+
+    def __init__(self, obs_shape: dict, hidden: int = 256, width: int = 64):
+        super().__init__()
+        cols, t_feat = obs_shape["terrain"]
+        _, e_feat = obs_shape["ents"]
+        n_vec = obs_shape["vec"][0]
+        self.terrain = nn.Sequential(
+            _init(nn.Conv1d(t_feat, 32, 3, padding=1)),
+            nn.ReLU(),
+            _init(nn.Conv1d(32, 32, 3, padding=1)),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        self.entity = nn.Sequential(
+            _init(nn.Linear(e_feat, width)), nn.ReLU(), _init(nn.Linear(width, width)), nn.ReLU()
+        )
+        self.fc = nn.Sequential(_init(nn.Linear(cols * 32 + 2 * width + n_vec, hidden)), nn.ReLU())
+        self.out_dim = hidden
+
+    @staticmethod
+    def preprocess(obs: dict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return obs["terrain"].float(), obs["ents"].float(), obs["vec"].float()
+
+    def forward(self, x: tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        terrain, ents, vec = x
+        t = self.terrain(terrain.transpose(1, 2))  # (B, C, F) -> conv over columns
+        mask = ents[..., :1]  # "present" flag
+        h = self.entity(ents) * mask
+        n = mask.sum(1).clamp(min=1.0)
+        mean = h.sum(1) / n
+        mx = (h - (1 - mask) * 1e4).max(1).values.clamp(min=0.0)  # empty set -> zeros
+        return self.fc(torch.cat([t, mean, mx, vec], dim=-1))
+
+
+ARCHS = ("default", "impala")
+
+
+def flatten_obs(obs: dict) -> torch.Tensor:
+    """(B, ...) dict observation -> (B, D) float tensor, keys in sorted order (the forward model's target)."""
+    return torch.cat([obs[k].float().flatten(1) for k in sorted(obs)], dim=1)
+
+
+def _encoder(obs_type: str, obs_shape, arch: str = "default") -> nn.Module:
+    if arch == "impala":
+        if obs_type != "tiles2":
+            raise ValueError("arch='impala' is implemented for obs='tiles2' only")
+        return TileEncoderImpala(obs_shape)
     if obs_type == "tiles":
         return TileEncoder(obs_shape)
     if obs_type == "tiles2":
         return TileEncoderV2(obs_shape)
     if obs_type == "pixels":
         return PixelEncoder(obs_shape)
+    if obs_type == "objects":
+        return ObjectEncoder(obs_shape)
     raise ValueError(f"unknown observation type {obs_type!r}")
 
 
@@ -139,18 +237,44 @@ class ActorCritic(nn.Module):
     Generalization in RL"). ``shared=True`` restores a single trunk.
     """
 
-    def __init__(self, obs_type: str, obs_shape, n_actions: int, shared: bool = False):
+    def __init__(
+        self,
+        obs_type: str,
+        obs_shape,
+        n_actions: int,
+        shared: bool = False,
+        arch: str = "default",
+        aux: bool = False,
+    ):
         super().__init__()
         self.obs_type = obs_type
+        self.arch = arch
+        self.aux = aux
         self.obs_shape = (
             {k: tuple(v) for k, v in obs_shape.items()} if isinstance(obs_shape, dict) else tuple(obs_shape)
         )
         self.n_actions = n_actions
         self.shared = shared
-        self.actor_encoder = _encoder(obs_type, self.obs_shape)
-        self.critic_encoder = None if shared else _encoder(obs_type, self.obs_shape)
+        self.actor_encoder = _encoder(obs_type, self.obs_shape, arch)
+        self.critic_encoder = None if shared else _encoder(obs_type, self.obs_shape, arch)
         self.policy = _init(nn.Linear(self.actor_encoder.out_dim, n_actions), gain=0.01)
         self.value = _init(nn.Linear(self.actor_encoder.out_dim, 1), gain=1.0)
+        self.aux_head = None
+        if aux:  # forward model on the actor's features: (features, action) -> next observation
+            if obs_type != "objects":
+                raise ValueError("the auxiliary forward model is implemented for obs='objects' only")
+            target = sum(int(np.prod(v)) for v in self.obs_shape.values())
+            self.aux_head = nn.Sequential(
+                _init(nn.Linear(self.actor_encoder.out_dim + n_actions, 256)),
+                nn.ReLU(),
+                _init(nn.Linear(256, target)),
+            )
+
+    def predict_next(self, obs, actions: torch.Tensor) -> torch.Tensor:
+        """Predicted next observation, flattened in the order of ``flatten_obs``."""
+        h = self.actor_encoder(self.actor_encoder.preprocess(obs))
+        a = nn.functional.one_hot(actions, self.n_actions).float()
+        return self.aux_head(torch.cat([h, a], dim=-1))
 
     def forward(self, obs) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.actor_encoder.preprocess(obs)  # shared by both encoders
@@ -167,6 +291,8 @@ class ActorCritic(nn.Module):
         if self.critic_encoder is None:
             return [list(self.parameters())]
         actor = [*self.actor_encoder.parameters(), *self.policy.parameters()]
+        if self.aux_head is not None:
+            actor += list(self.aux_head.parameters())
         critic = [*self.critic_encoder.parameters(), *self.value.parameters()]
         return [actor, critic]
 
@@ -180,7 +306,7 @@ class ActorCritic(nn.Module):
             action = logits.argmax(-1)
         else:
             # Gumbel-max trick: exact categorical sampling, much cheaper than multinomial.
-            u = torch.rand(log_probs.shape, generator=generator).clamp_(1e-10, 1.0)
+            u = torch.rand(log_probs.shape, generator=generator, device=log_probs.device).clamp_(1e-10, 1.0)
             action = (log_probs - (-u.log()).log()).argmax(-1)
         return action, log_probs.gather(-1, action[:, None]).squeeze(-1), value
 
@@ -197,4 +323,6 @@ class ActorCritic(nn.Module):
             "obs_shape": self.obs_shape,
             "n_actions": self.n_actions,
             "shared": self.shared,
+            "arch": self.arch,
+            "aux": self.aux,
         }

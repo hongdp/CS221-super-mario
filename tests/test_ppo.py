@@ -182,3 +182,259 @@ def test_end_to_end_dict_observations(tmp_path):
     model, _ = load_policy(run_dir / "latest.pt")
     assert model.obs_type == "tiles2" and model.obs_shape["vec"] == (10,)
     cli_main(["play", str(run_dir / "latest.pt"), "--level", "1-2"])
+
+
+@pytest.mark.slow
+def test_end_to_end_impala_with_augmentation(tmp_path):
+    cfg = PPOConfig(
+        run_name="tiny3", out_dir=str(tmp_path), total_steps=64, num_envs=2, num_steps=32,
+        num_minibatches=2, update_epochs=1, eval_interval=0, save_interval=64, torch_threads=1,
+        arch="impala", aug_shift=2, inference="batched",
+    )  # fmt: skip
+    run_dir = train(cfg, EnvConfig(levels=("1-1",), obs="tiles2", max_episode_steps=40))
+    model, ckpt = load_policy(run_dir / "latest.pt")
+    assert model.arch == "impala" and ckpt["ppo_config"]["aug_shift"] == 2
+    metrics = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text().splitlines()]
+    assert any("loss/aug_policy_kl" in m for m in metrics)
+
+
+def test_random_shift_moves_whole_stack_and_repeats_border():
+    import torch
+
+    from mario_rl.augment import random_shift
+
+    torch.manual_seed(0)
+    grid = torch.arange(3 * 2 * 2 * 8, dtype=torch.uint8).view(3, 2, 2, 8)
+    obs = {"grid": grid, "vec": torch.randn(3, 10)}
+    out = random_shift(obs, 3)
+    assert out["vec"] is obs["vec"]
+    for b in range(3):
+        cols = out["grid"][b, 0, 0].long() - grid[b, 0, 0, 0].long()  # column index each cell came from
+        k = int(cols[4] - 4)  # shift was -k
+        assert -3 <= k <= 3
+        assert torch.equal(cols, (torch.arange(8) + k).clamp(0, 7))
+        for s in range(2):  # every frame and row uses the same shift
+            assert torch.equal(out["grid"][b, s], grid[b, s][:, (torch.arange(8) + k).clamp(0, 7)])
+
+
+@pytest.mark.slow
+def test_batched_rollout_matches_worker_rollout_contract():
+    """Learner-side batched inference returns the same Rollout structure, on CPU too."""
+    import numpy as np
+
+    from mario_rl.env import observation_spec
+    from mario_rl.inference import BatchedActor
+    from mario_rl.models import ActorCritic
+    from mario_rl.workers import WorkerPool
+
+    env_cfg = EnvConfig(levels=("1-1", "1-2"), obs="tiles2", max_episode_steps=30)
+    obs_type, obs_shape, n_actions = observation_spec(env_cfg)
+    model = ActorCritic(obs_type, obs_shape, n_actions)
+    model.share_memory()
+    pool = WorkerPool(2, env_cfg, model, seed=0)
+    try:
+        worker_ro = pool.rollout(40)
+        batched_ro = pool.rollout_batched(BatchedActor(model), 40, np.array([0.5, 0.5]))
+    finally:
+        pool.close()
+    for a, b in zip(worker_ro, batched_ro, strict=True):
+        assert a.obs["grid"].shape == b.obs["grid"].shape and a.actions.shape == b.actions.shape
+    for ro in batched_ro:
+        assert ro.dones.any()  # 30-step time limit inside a 40-step segment
+        assert len(ro.episodes) == ro.dones.sum()
+        assert np.all(ro.bootstrap[~ro.dones] == 0) and np.any(ro.bootstrap != 0)
+        assert set(ro.level_ids.tolist()) <= {0, 1}
+        assert np.all((ro.actions >= 0) & (ro.actions < n_actions)) and np.all(ro.logprobs <= 0)
+
+
+def test_completion_sampler_favours_unsolved_levels():
+    from mario_rl.plr import LevelSampler
+
+    s = LevelSampler(3, "completion")
+    assert np.allclose(s.weights(), 1 / 3)
+    for _ in range(200):
+        s.update_completion(0, True)  # level 0 always cleared
+        s.update_completion(1, False)  # level 1 never
+    w = s.weights()
+    assert w[1] > 5 * w[0] and np.isclose(w.sum(), 1.0)
+    restored = LevelSampler(3, "completion")
+    restored.load_state_dict(s.state_dict())
+    assert np.allclose(restored.weights(), w)
+
+
+@pytest.mark.slow
+def test_init_from_starts_a_new_run_from_pretrained_weights(tmp_path):
+    import torch
+
+    base = dict(out_dir=str(tmp_path), num_envs=2, num_steps=32, num_minibatches=2, update_epochs=1,
+                eval_interval=0, torch_threads=1)  # fmt: skip
+    env_cfg = EnvConfig(levels=("1-1",), obs="tiles2", max_episode_steps=40)
+    src = train(PPOConfig(run_name="src", total_steps=64, save_interval=64, **base), env_cfg)
+    src_weights = torch.load(src / "latest.pt", weights_only=False)["model"]
+    # a 0-step run saves the weights exactly as loaded
+    dst = train(PPOConfig(run_name="dst", total_steps=0, save_interval=64, init_from=str(src / "latest.pt"), **base),
+                EnvConfig(levels=("2-1",), obs="tiles2", max_episode_steps=40))  # fmt: skip
+    dst_ckpt = torch.load(dst / "latest.pt", weights_only=False)
+    assert dst_ckpt["global_step"] == 0
+    assert all(torch.equal(src_weights[k], dst_ckpt["model"][k]) for k in src_weights)
+
+
+def test_object_encoder_is_permutation_invariant_and_handles_no_entities():
+    import torch
+
+    from mario_rl.env import EnvConfig, observation_spec
+    from mario_rl.models import ActorCritic
+
+    obs_type, shape, n = observation_spec(EnvConfig(obs="objects"))
+    model = ActorCritic(obs_type, shape, n)
+    obs = {k: torch.randn(3, *v) for k, v in shape.items()}
+    obs["ents"][:, 5:, 0] = 0
+    obs["ents"][0, :, 0] = 0  # no entities at all
+    perm = torch.randperm(shape["ents"][0])
+    logits, value = model(obs)
+    assert torch.isfinite(logits).all() and torch.isfinite(value).all()
+    assert torch.allclose(logits, model({**obs, "ents": obs["ents"][:, perm]})[0], atol=1e-5)
+
+
+@pytest.mark.slow
+def test_end_to_end_objects_observation(tmp_path):
+    cfg = PPOConfig(
+        run_name="obj", out_dir=str(tmp_path), total_steps=64, num_envs=2, num_steps=32,
+        num_minibatches=2, update_epochs=1, eval_interval=64, eval_levels="2-1",
+        eval_on_train=False, eval_episodes=1, save_interval=64, torch_threads=1, inference="batched",
+    )  # fmt: skip
+    run_dir = train(cfg, EnvConfig(levels=("1-1",), obs="objects", max_episode_steps=40))
+    model, _ = load_policy(run_dir / "latest.pt")
+    assert model.obs_type == "objects"
+
+
+def test_next_obs_targets_mask_episode_ends():
+    import torch
+
+    from mario_rl.ppo import _next_obs_targets
+    from mario_rl.workers import Rollout
+
+    T = 5
+    obs = {"a": np.arange(T, dtype=np.float32)[:, None], "b": np.zeros((T, 2), dtype=np.float32)}
+    dones = np.array([False, True, False, False, False])
+    z = np.zeros(T, dtype=np.float32)
+    ro = Rollout(obs, z.astype(np.int64), z, z, z, z, dones, z.astype(np.int16), 0.0)
+    target, mask = _next_obs_targets([ro], torch.device("cpu"))
+    assert torch.equal(
+        mask, torch.tensor([1.0, 0.0, 1.0, 1.0, 0.0])
+    )  # no target across the episode end / segment end
+    assert torch.equal(target[0], torch.tensor([1.0, 0.0, 0.0]))  # keys sorted: a, then b (2 values)
+
+
+@pytest.mark.slow
+def test_end_to_end_auxiliary_forward_model(tmp_path):
+    cfg = PPOConfig(
+        run_name="aux", out_dir=str(tmp_path), total_steps=128, num_envs=2, num_steps=32, num_minibatches=2,
+        update_epochs=1, eval_interval=0, save_interval=128, torch_threads=1, aux_coef=1.0,
+    )  # fmt: skip
+    run_dir = train(cfg, EnvConfig(levels=("1-1",), obs="objects", max_episode_steps=40))
+    metrics = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text().splitlines()]
+    assert any("loss/aux_forward" in m for m in metrics)
+    model, _ = load_policy(run_dir / "latest.pt")
+    assert model.aux and model.aux_head is not None
+
+
+@pytest.mark.slow
+def test_reptile_meta_step_size_controls_how_far_theta_moves(tmp_path):
+    import torch
+
+    base = dict(out_dir=str(tmp_path), num_envs=2, num_steps=32, num_minibatches=2, update_epochs=1,
+                eval_interval=0, torch_threads=1, save_interval=10**9)  # fmt: skip
+    env_cfg = EnvConfig(levels=("1-1", "1-2"), obs="tiles2", max_episode_steps=40, ego_back=2, ego_ahead=8)
+    src = train(PPOConfig(run_name="src", total_steps=0, **base), env_cfg)
+    init = torch.load(src / "latest.pt", weights_only=False)["model"]
+
+    def final(step_size, name):
+        cfg = PPOConfig(run_name=name, total_steps=256, init_from=str(src / "latest.pt"), meta_inner_steps=128,
+                        meta_step_size=step_size, **base)  # fmt: skip
+        return torch.load(train(cfg, env_cfg) / "latest.pt", weights_only=False)["model"]
+
+    frozen = final(0.0, "eps0")  # inner loops train, but theta never moves
+    assert all(torch.equal(init[k], frozen[k]) for k in init)
+    moved = final(1.0, "eps1")
+    assert any(not torch.equal(init[k], moved[k]) for k in init)
+
+
+@pytest.mark.slow
+def test_reset_all_switches_every_worker_to_the_task_level():
+    from mario_rl.env import observation_spec
+    from mario_rl.inference import BatchedActor
+    from mario_rl.models import ActorCritic
+    from mario_rl.workers import WorkerPool
+
+    env_cfg = EnvConfig(levels=("1-1", "1-2", "1-3"), obs="tiles2", max_episode_steps=30)
+    obs_type, obs_shape, n_actions = observation_spec(env_cfg)
+    model = ActorCritic(obs_type, obs_shape, n_actions)
+    model.share_memory()
+    pool = WorkerPool(2, env_cfg, model, seed=0)
+    try:
+        task = np.array([0.0, 0.0, 1.0])
+        pool.reset_all(task)
+        for ro in pool.rollout_batched(BatchedActor(model), 40, task):
+            assert set(ro.level_ids.tolist()) == {2}  # 1-3 from the first step, also after the 30-step resets
+    finally:
+        pool.close()
+
+
+def test_recurrent_sequence_replay_matches_stepwise_with_resets():
+    import torch
+
+    from mario_rl.env import EnvConfig, observation_spec
+    from mario_rl.recurrent import RecurrentActorCritic
+
+    obs_type, shape, n = observation_spec(EnvConfig(obs="tiles2", ego_back=2, ego_ahead=8, trial_episodes=3))
+    model = RecurrentActorCritic(obs_type, shape, n, hidden=32)
+    T, B = 6, 3
+    obs = {
+        "grid": torch.randint(0, 6, (T, B, *shape["grid"]), dtype=torch.uint8),
+        "vec": torch.randn(T, B, *shape["vec"]),
+    }
+    resets = torch.zeros(T, B)
+    resets[3, 1] = 1.0  # env 1 starts a new trial at step 3
+    state0 = torch.randn(B, 2, 32)
+    logits_seq, values_seq = model.forward_seq(obs, state0, resets)
+    state = state0.clone()
+    for t in range(T):
+        state = state * (1 - resets[t]).view(B, 1, 1)
+        logits, values, state = model.step({k: v[t] for k, v in obs.items()}, state)
+        assert torch.allclose(logits, logits_seq[t], atol=1e-5) and torch.allclose(
+            values, values_seq[t], atol=1e-5
+        )
+
+
+@pytest.mark.slow
+def test_end_to_end_recurrent_trials(tmp_path):
+    from mario_rl.recurrent import load_recurrent, train_recurrent
+
+    cfg = PPOConfig(
+        run_name="rl2", out_dir=str(tmp_path), total_steps=192, num_envs=2, num_steps=32, num_minibatches=2,
+        update_epochs=1, eval_interval=192, eval_levels="2-1", eval_episodes=1, save_interval=192,
+        torch_threads=1, recurrent=True,
+    )  # fmt: skip
+    env_cfg = EnvConfig(levels=("1-1", "1-2"), obs="tiles2", ego_back=2, ego_ahead=8, trial_episodes=3,
+                        max_episode_steps=20)  # fmt: skip
+    run_dir = train_recurrent(cfg, env_cfg)
+    rec = [json.loads(line) for line in (run_dir / "eval.jsonl").read_text().splitlines()]
+    assert {"attempt1/progress", "attempt3/progress"} <= set(rec[-1]["test"])  # all 3 attempts evaluated
+    model, ckpt = load_recurrent(run_dir / "latest.pt")
+    assert ckpt["model_spec"]["recurrent"] and model.hidden == 256
+
+
+def test_spec_compatibility_fills_defaults_of_newer_fields():
+    from mario_rl.ppo import _spec_with_defaults
+
+    old = {
+        "obs_type": "tiles2",
+        "obs_shape": {"grid": (4, 26, 10)},
+        "n_actions": 7,
+        "shared": False,
+        "arch": "default",
+    }
+    new = {**old, "aux": False}
+    assert _spec_with_defaults(old) == _spec_with_defaults(new)
+    assert _spec_with_defaults(old) != _spec_with_defaults({**new, "aux": True})

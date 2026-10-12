@@ -1,0 +1,238 @@
+{
+ "checkpoint": "experiments/E38-goalB-rl2v2-trials2-seg1024-30m-seed2_20261011_141555/latest.pt",
+ "global_step": 29999104,
+ "memory": "keep",
+ "attempts": 2,
+ "attempt1": {
+  "progress": 0.8346579609715596,
+  "completion": 0.5545454545454546,
+  "levels": {
+   "1-1": {
+    "progress": 1.0,
+    "completion": 1.0,
+    "n": 10
+   },
+   "1-2": {
+    "progress": 0.8464788732394366,
+    "completion": 0.7,
+    "n": 10
+   },
+   "1-3": {
+    "progress": 1.0,
+    "completion": 1.0,
+    "n": 10
+   },
+   "1-4": {
+    "progress": 0.9252263374485598,
+    "completion": 0.7,
+    "n": 10
+   },
+   "2-2": {
+    "progress": 0.4202694427434171,
+    "completion": 0.0,
+    "n": 10
+   },
+   "2-3": {
+    "progress": 0.9078761542639869,
+    "completion": 0.8,
+    "n": 10
+   },
+   "2-4": {
+    "progress": 0.9649794238683127,
+    "completion": 0.7,
+    "n": 10
+   },
+   "3-1": {
+    "progress": 0.9744390539721042,
+    "completion": 0.9,
+    "n": 10
+   },
+   "3-2": {
+    "progress": 1.0,
+    "completion": 1.0,
+    "n": 10
+   },
+   "3-4": {
+    "progress": 0.7501234567901234,
+    "completion": 0.2,
+    "n": 10
+   },
+   "4-1": {
+    "progress": 1.0,
+    "completion": 1.0,
+    "n": 10
+   },
+   "4-3": {
+    "progress": 1.0,
+    "completion": 1.0,
+    "n": 10
+   },
+   "5-2": {
+    "progress": 0.6961188599151,
+    "completion": 0.1,
+    "n": 10
+   },
+   "5-3": {
+    "progress": 0.848090692124105,
+    "completion": 0.6,
+    "n": 10
+   },
+   "5-4": {
+    "progress": 0.9135034993824618,
+    "completion": 0.5,
+    "n": 10
+   },
+   "6-1": {
+    "progress": 1.0,
+    "completion": 1.0,
+    "n": 10
+   },
+   "6-3": {
+    "progress": 0.7804647785039942,
+    "completion": 0.0,
+    "n": 10
+   },
+   "7-2": {
+    "progress": 0.4603184323331292,
+    "completion": 0.1,
+    "n": 10
+   },
+   "7-3": {
+    "progress": 0.8047800108636611,
+    "completion": 0.6,
+    "n": 10
+   },
+   "8-1": {
+    "progress": 0.6567222767419039,
+    "completion": 0.0,
+    "n": 10
+   },
+   "8-2": {
+    "progress": 0.7317670230725942,
+    "completion": 0.0,
+    "n": 10
+   },
+   "8-3": {
+    "progress": 0.6813168261114237,
+    "completion": 0.3,
+    "n": 10
+   }
+  }
+ },
+ "attempt2": {
+  "progress": 0.8397693857198957,
+  "completion": 0.5909090909090908,
+  "levels": {
+   "1-1": {
+    "progress": 1.0,
+    "completion": 1.0,
+    "n": 10
+   },
+   "1-2": {
+    "progress": 0.6748009797917942,
+    "completion": 0.5,
+    "n": 10
+   },
+   "1-3": {
+    "progress": 1.0,
+    "completion": 1.0,
+    "n": 10
+   },
+   "1-4": {
+    "progress": 0.9433744855967078,
+    "completion": 0.8,
+    "n": 10
+   },
+   "2-2": {
+    "progress": 0.4677587262706675,
+    "completion": 0.1,
+    "n": 10
+   },
+   "2-3": {
+    "progress": 0.9060293318848451,
+    "completion": 0.7,
+    "n": 10
+   },
+   "2-4": {
+    "progress": 0.9567078189300411,
+    "completion": 0.8,
+    "n": 10
+   },
+   "3-1": {
+    "progress": 0.919436021831413,
+    "completion": 0.7,
+    "n": 10
+   },
+   "3-2": {
+    "progress": 1.0,
+    "completion": 1.0,
+    "n": 10
+   },
+   "3-4": {
+    "progress": 0.9368312757201647,
+    "completion": 0.8,
+    "n": 10
+   },
+   "4-1": {
+    "progress": 1.0,
+    "completion": 1.0,
+    "n": 10
+   },
+   "4-3": {
+    "progress": 1.0,
+    "completion": 1.0,
+    "n": 10
+   },
+   "5-2": {
+    "progress": 0.6064281382656156,
+    "completion": 0.2,
+    "n": 10
+   },
+   "5-3": {
+    "progress": 0.7997613365155132,
+    "completion": 0.4,
+    "n": 10
+   },
+   "5-4": {
+    "progress": 0.9128447920955125,
+    "completion": 0.6,
+    "n": 10
+   },
+   "6-1": {
+    "progress": 1.0,
+    "completion": 1.0,
+    "n": 10
+   },
+   "6-3": {
+    "progress": 0.7865286855482934,
+    "completion": 0.0,
+    "n": 10
+   },
+   "7-2": {
+    "progress": 0.5799142682180037,
+    "completion": 0.2,
+    "n": 10
+   },
+   "7-3": {
+    "progress": 0.7843834872351982,
+    "completion": 0.6,
+    "n": 10
+   },
+   "8-1": {
+    "progress": 0.6025188092901537,
+    "completion": 0.0,
+    "n": 10
+   },
+   "8-2": {
+    "progress": 0.8115081598199213,
+    "completion": 0.1,
+    "n": 10
+   },
+   "8-3": {
+    "progress": 0.7861001688238605,
+    "completion": 0.5,
+    "n": 10
+   }
+  }
+ }
+}

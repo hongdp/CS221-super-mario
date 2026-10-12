@@ -1,0 +1,17 @@
+{
+  "checkpoint": "experiments/E39-goalB-reptile-fromE28_20261011_141906/runs/s1_5-1_pretrained/ckpt_26624.pt",
+  "global_step": 26624,
+  "5-1": {
+    "progress": 0.8188299817184644,
+    "completion": 0.4,
+    "levels": {
+      "5-1": {
+        "progress": 0.8188299817184644,
+        "completion": 0.4,
+        "return": 255.81999999999925,
+        "length": 262.3,
+        "episodes": 10
+      }
+    }
+  }
+}

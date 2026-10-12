@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from mario_rl import smb
 from mario_rl.tiles import (
@@ -183,3 +184,23 @@ def test_mario_features():
     ram[smb.SWIMMING] = 1
     f = mario_features(ram)
     np.testing.assert_allclose(f, [1.0, -1.0, 0, 1, 0, 0, 1, 1, 1, 0])
+
+
+@pytest.mark.parametrize("thrower", [0x05, 0x2D])  # Hammer Bro, Bowser
+def test_hammer_sprites_are_hazards(thrower):
+    from mario_rl import smb
+    from mario_rl.tiles import HAZARD2, tile_grid_v2
+
+    ram = np.zeros(0x800, dtype=np.uint8)
+    ram[smb.ENEMY_ACTIVE] = 1
+    ram[smb.ENEMY_TYPE] = thrower
+    ram[smb.ENEMY_Y_VIEWPORT] = 1
+    oam = np.full((64, 4), 0xF8, dtype=np.uint8)  # all sprites hidden (y >= 0xEF)
+    oam[0] = (100, 0x80, 0, 120)  # hammer, top half: y, tile, attributes, x
+    oam[1] = (108, 0x81, 0, 120)  # bottom half
+    ram[smb.OAM : smb.OAM + 256] = oam.reshape(-1)
+    grid = tile_grid_v2(ram)
+    col, row_top = 120 // 8, (100 + 1 - 32) // 8
+    assert grid[row_top, col] == HAZARD2 and grid[row_top + 1, col] == HAZARD2
+    ram[smb.ENEMY_TYPE] = 0x06  # goomba: tile 0x80 means something else, not drawn
+    assert not (tile_grid_v2(ram)[row_top : row_top + 2, col] == HAZARD2).any()

@@ -74,7 +74,13 @@ def bcd(ram: np.ndarray, address: int, length: int) -> int:
 
 
 def x_pos(ram: np.ndarray) -> int:
-    return int(ram[PLAYER_PAGE]) * 256 + int(ram[PLAYER_X])
+    """Mario's x position in the level (px). Signed: stepping left of the level start makes the page
+    byte underflow to 0xFF, which must read as a small negative x, not ~65000 (no level is longer
+    than ~20 pages, so pages >= 0x80 are negative)."""
+    page = int(ram[PLAYER_PAGE])
+    if page >= 0x80:
+        page -= 0x100
+    return page * 256 + int(ram[PLAYER_X])
 
 
 def screen_left(ram: np.ndarray) -> int:

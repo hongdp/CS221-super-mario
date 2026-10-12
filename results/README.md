@@ -1,6 +1,6 @@
 # Results
 
-[`EXPERIMENTS.md`](EXPERIMENTS.md) is the chronological log of all experiments (E1-E10).
+[`EXPERIMENTS.md`](EXPERIMENTS.md) is the chronological log of all experiments (E1-E20).
 
 | folder | experiment |
 |---|---|
@@ -8,6 +8,7 @@
 | `tiles-sticky-3m/` | E8: main config + sticky actions (p=0.25), 3M steps |
 | `tiles2-uniform-3m/` | E9: `--obs tiles2`, 3M steps (weights in `model.pt`) |
 | `pixels-uniform-3m/` | E10: `--obs pixels`, 3M steps (weights not committed) |
+| `10m-study/` | E11-E20: 10M-step runs (per-checkpoint evals + configs), E19 failure snapshots, `families_10m.png` |
 | `comparisons/` | overlays of several runs (`mario-rl compare`) |
 | `diagnostics/old-shared-encoder-1m/` | E5: first multi-level run with a shared actor/critic trunk (policy collapse) |
 | `diagnostics/level-1-1-ab/` | E4: 200k-step A/B tests on level 1-1 (γ, reward scale, decoupling) |

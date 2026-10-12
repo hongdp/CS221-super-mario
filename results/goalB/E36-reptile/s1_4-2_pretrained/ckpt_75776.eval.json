@@ -1,0 +1,17 @@
+{
+  "checkpoint": "experiments/E36-goalB-reptile-fewshot_20261010_114617/runs/s1_4-2_pretrained/ckpt_75776.pt",
+  "global_step": 75776,
+  "4-2": {
+    "progress": 0.2688916105327618,
+    "completion": 0.0,
+    "levels": {
+      "4-2": {
+        "progress": 0.2688916105327618,
+        "completion": 0.0,
+        "return": 79.3000000000001,
+        "length": 99.6,
+        "episodes": 10
+      }
+    }
+  }
+}

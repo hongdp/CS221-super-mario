@@ -120,6 +120,8 @@ _HAZARD_TYPES = frozenset(
 )  # fmt: skip
 _FIREBAR_TYPES = frozenset({0x1B, 0x1C, 0x1D, 0x1E, 0x1F})
 _HAMMER_BRO = 0x05
+_BOWSER = 0x2D  # throws hammers from world 6 on
+_HAMMER_TILES = np.array([0x80, 0x81, 0x82, 0x83], dtype=np.uint8)  # OAM tiles of a spinning hammer (8x16)
 _FIREBAR_TILE = 0x64  # OAM tile of a firebar segment
 _GRID2_ROWS = np.arange(ROWS2)[:, None] // 2
 _GRID2_XS = 4 + 8 * np.arange(COLS2)
@@ -173,10 +175,14 @@ def tile_grid_v2(ram: np.ndarray) -> np.ndarray:
         for y, _tile, _attr, x in oam[oam[:, 1] == _FIREBAR_TILE]:
             if y < 0xEF:
                 _mark_box(grid, int(x), int(y) + 1, int(x) + 8, int(y) + 9, HAZARD2)
-    if _HAMMER_BRO in kinds:  # misc slots then hold hammers (otherwise jumping coins)
+    if _HAMMER_BRO in kinds or _BOWSER in kinds:  # misc slots then hold hammers (else jumping coins)
         for slot in range(9):
-            if ram[smb.MISC_STATE + slot]:
+            if ram[smb.MISC_STATE + slot]:  # the box is only valid on some frames
                 _mark_box(grid, *_box(ram, smb.MISC_BOX + 4 * slot), HAZARD2)
+        oam = ram[smb.OAM : smb.OAM + 256].reshape(64, 4)
+        for y, _tile, _attr, x in oam[np.isin(oam[:, 1], _HAMMER_TILES)]:
+            if y < 0xEF:  # the sprites are always there, so hammers never drop out of the grid
+                _mark_box(grid, int(x), int(y) + 1, int(x) + 8, int(y) + 9, HAZARD2)
 
     if ram[smb.PLAYER_Y_VIEWPORT] == 1:
         _mark_box(grid, *_box(ram, smb.PLAYER_BOX), MARIO2)
