@@ -461,3 +461,19 @@ Evaluations: `goalB/E37-rl2/` (script `goalB/trial_eval.py`).
 5M Reptile steps on top of E28's weights keep the strong start (zero-shot 28.1). Few-shot: **40.1 / 4.8 at 25k** (E30: 40.5 / 3.3), so the
 primary criterion is refuted. Stochastic completion is higher with more practice, 10.5 / 15.2 / 13.3% at 50k / 75k / 100k vs 8.6 / 9.0 / 7.1%,
 for every seed, but greedy completion does not confirm it (14.3 vs 16.2%). That is weak evidence of better reliability after longer practice.
+
+## E38: RL² v2 — whole trials inside the BPTT window (2 attempts, 1024-step segments, 30M steps, 2 seeds)
+Held-out, 10 trials per level: attempt 2 − attempt 1 = **+1.7** with memory kept (+1.4 / +2.0) vs −1.2 with memory reset, so kept − reset is
++2.9. On the training levels kept − reset is −1.0. **Inconclusive**: memory now moves held-out play in the expected direction for both seeds,
+but by less than the pre-registered +3 and within the noise of 70 episodes per point, and not at all on the training levels.
+
+## Goal B, few-shot metric: summary
+| method (vs multi-task E28 + fine-tuning) | few-shot progress @25k | completion @100k | in-context gain |
+|---|---|---|---|
+| E30 multi-task baseline | 40.5 | 7.1 | — |
+| E36 Reptile from scratch | 40.0 | 8.1 | — |
+| E39 Reptile from E28 | 40.1 | 13.3 (greedy 14.3 vs 16.2) | — |
+| E37 RL², 256-step BPTT | — | — | −0.4 (≈ memory reset) |
+| E38 RL², whole-trial BPTT, 30M | — | — | +1.7 (reset −1.2) |
+None of the meta-learning methods gives a reliable few-shot gain at this compute. The only positive signals (E39 completion with longer
+practice, E38 memory effect) are small and within noise.
