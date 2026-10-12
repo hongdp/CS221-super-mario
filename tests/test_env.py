@@ -332,3 +332,33 @@ def test_maze_loop_teleport_is_penalized():
         env._game.emu.set_state(start)  # what a loop does: teleport back
         _, reward, terminated, _, _ = env.step(0)
         assert not terminated and np.isclose(reward, -env.config.maze_loop_penalty * env.config.reward_scale)
+
+
+def test_position_features_append_x_area_and_maze_counters():
+    from mario_rl.env import MAZE_CORRECT_COUNTER, MAZE_PASS_COUNTER
+
+    with closing(MarioEnv(levels=("7-4",), obs="tiles2", noop_max=0, position_features=True)) as env:
+        assert env.observation_space["vec"].shape == (14,)
+        obs, _ = env.reset(seed=0, options={"level": "7-4"})
+        for _ in range(30):
+            obs, *_ = env.step(RIGHT)
+        ram = env._game.ram()
+        assert np.isclose(obs["vec"][-4], smb.x_pos(ram) / 4096.0)
+        assert np.isclose(obs["vec"][-3], int(ram[smb.AREA]) / 4.0)
+        assert (
+            obs["vec"][-2] == ram[MAZE_CORRECT_COUNTER] / 4.0
+            and obs["vec"][-1] == ram[MAZE_PASS_COUNTER] / 4.0
+        )
+
+
+def test_mid_start_y_bands_key_includes_height():
+    with closing(
+        MarioEnv(levels=("1-1",), obs="tiles2", noop_max=0, mid_start_prob=1.0, mid_start_y_bands=True)
+    ) as env:
+        env.reset(seed=0, options={"level": "1-1"})
+        for t in range(400):
+            _, _, term, trunc, _ = env.step(4 if t % 12 < 6 else 3)
+            if term or trunc:
+                break
+        keys = list(env._archive[env.level])
+        assert keys and all(len(k) == 3 and 0 <= k[2] <= 3 for k in keys)

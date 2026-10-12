@@ -116,6 +116,13 @@ class EnvConfig:
     # trial is over. vec gets extra inputs: previous action (one-hot), previous reward, a "first step of
     # an attempt" flag and the attempt index. info["trial_end"] marks the end of a trial.
     trial_episodes: int = 0
+    # Goal A: append the level position and the maze state to vec: x / 4096, area / 4, and the game's maze
+    # counters MultiLoopCorrectCntr ($06D9) and MultiLoopPassCntr ($06DA) / 4. Repeated maze sections then
+    # look different, and the agent can tell whether it has taken the right path in a multi-checkpoint zone.
+    position_features: bool = False
+    # Archive mid-level start states per (area, column, Mario height band of 64 px) instead of per column, so a
+    # rarely reached route (e.g. 4-4's bottom corridor) gets its own start state instead of being shadowed.
+    mid_start_y_bands: bool = False
     mid_start_bucket: int = 256
     mid_start_confirm: int = 30
     rom_path: str | None = None
@@ -125,9 +132,15 @@ class EnvConfig:
         return asdict(self)
 
 
+POSITION_FEATURES = 4  # x, area, maze correct counter, maze pass counter
+MAZE_CORRECT_COUNTER, MAZE_PASS_COUNTER = 0x06D9, 0x06DA
+
+
 def meta_features(config: EnvConfig) -> int:
-    """Extra vec entries in trial mode: previous action one-hot, previous reward, first-step flag, attempt."""
-    return len(ACTION_SETS[config.actions]) + 3 if config.trial_episodes else 0
+    """Extra vec entries: trial inputs (previous action one-hot, previous reward, first-step flag, attempt) in
+    trial mode, and the position / maze-state inputs with position_features."""
+    trial = len(ACTION_SETS[config.actions]) + 3 if config.trial_episodes else 0
+    return trial + (POSITION_FEATURES if config.position_features else 0)
 
 
 def observation_spec(config: EnvConfig) -> tuple[str, Any, int]:
@@ -202,8 +215,8 @@ class MarioEnv(gym.Env):
             frame_shape = shape
         self._frames = np.zeros(frame_shape, dtype=np.uint8)
         self._weights = self._normalise(config.level_weights)
-        self._archive: dict[Level, dict[tuple[int, int], bytes]] = {}  # mid-level start states
-        self._pending: tuple[tuple[int, int], bytes, int] | None = None
+        self._archive: dict[Level, dict[tuple[int, ...], bytes]] = {}  # mid-level start states
+        self._pending: tuple[tuple[int, ...], bytes, int] | None = None
         self._mid_start = False
         self._attempt, self._trial_level = 0, None
         self._prev_action, self._prev_reward, self._first_step = -1, 0.0, True
@@ -415,16 +428,32 @@ class MarioEnv(gym.Env):
     def _vec(self, ram: np.ndarray) -> np.ndarray:
         """Mario's state, plus the trial inputs (previous action / reward, first step, attempt) in trial mode."""
         vec = mario_features(ram)
+        parts = [vec]
+        if self.config.position_features:
+            parts.append(
+                np.array(
+                    [
+                        smb.x_pos(ram) / 4096.0,
+                        int(ram[smb.AREA]) / 4.0,
+                        int(ram[MAZE_CORRECT_COUNTER]) / 4.0,
+                        int(ram[MAZE_PASS_COUNTER]) / 4.0,
+                    ],
+                    dtype=np.float32,
+                )
+            )
         if not self.config.trial_episodes:
-            return vec
-        meta = np.zeros(meta_features(self.config), dtype=np.float32)
+            return np.concatenate(parts) if len(parts) > 1 else vec
+        meta = np.zeros(
+            meta_features(self.config) - (POSITION_FEATURES if self.config.position_features else 0),
+            dtype=np.float32,
+        )
         n = len(self._buttons)
         if self._prev_action >= 0:
             meta[self._prev_action] = 1.0
         meta[n] = np.clip(self._prev_reward, -5.0, 5.0) / 5.0
         meta[n + 1] = float(self._first_step)
         meta[n + 2] = self._attempt / max(self.config.trial_episodes - 1, 1)
-        return np.concatenate([vec, meta])
+        return np.concatenate([*parts, meta])
 
     def _perturb_terrain(self, ram: np.ndarray, x: int) -> None:
         """Maybe add a block to every column that has entered the right edge of the screen."""
@@ -472,6 +501,8 @@ class MarioEnv(gym.Env):
                     self._archive.setdefault(self.level, {}).setdefault(key, state)
             return
         key = (int(ram[smb.AREA]), x // self.config.mid_start_bucket)
+        if self.config.mid_start_y_bands:
+            key = (*key, int(ram[smb.PLAYER_Y]) // 64)
         if (
             alive
             and key[1] > 0
