@@ -485,3 +485,10 @@ in the mazes): **7-4 cleared in 4/10 episodes**, the first maze clear. The loop 
 section by section. All-32 greedy completion is **77.2%**, non-maze **83.8%**, and 30 of 32 levels are cleared at least once. 4-4 and 8-4 stay
 unsolved. In 4-4 the agent now tries both branches at x≈2048 and still loops, a sign that the right choice depends on state it cannot see.
 Evals: `goalA-final/E40{a,b}/`.
+
+## E41: position / maze-state inputs and a height-banded mid-start archive (continuing E40b, +40M)
+The game tracks multi-checkpoint maze zones in RAM (`$06D9` correct / `$06DA` passed checkpoints). E41a adds x, area and those counters to
+the agent's input (E40b's FC layer is widened with zero weights) and archives mid-start states per height band. E41b only changes the archive.
+**7-4 becomes reliable: 90% greedy (E41a) / 70% (E41b)**, up from 40%. **4-4 and 8-4 stay at 0%**, with progress frozen at 70% / 51%. All-32 greedy
+is 76.9% / 75.0% (E40b 77.2%). In 4-4 the agent never reaches the passing route (bottom corridor), and in 8-4 it never enters the right pipes, so
+these two are an exploration problem, not a perception one. Evals: `goalA-final/E41{a,b}/`.
