@@ -2,12 +2,13 @@
 # Few-shot evaluation (goal-B metric, E30 protocol): fine-tune a pretrained policy on each held-out level for 100k steps
 # (checkpoints every 25k) and evaluate it on that level (10 stochastic episodes per checkpoint, + greedy at the end).
 # usage: fewshot.sh OUTDIR "PRETRAINED_GLOB_WITH_SEED" "TRAIN_ARGS" [seeds]
-#   e.g. fewshot.sh experiments/E37_x "experiments/E36-*-seedSEED_*/latest.pt" "--obs tiles2 --ego-back 2 --ego-ahead 8"
+#   e.g. scripts/fewshot.sh runs/fewshot "runs/<run>-seedSEED/latest.pt" "--obs tiles2 --ego-back 2 --ego-ahead 8"
 set -uo pipefail
 cd "$(dirname "$0")/.."
 source .venv/bin/activate
 D=$1; PRE=$2; ARGS=$3; SEEDS=${4:-"1 2 3"}
 mkdir -p $D/runs $D/logs
+mkdir -p experiments
 log() { echo "[$(date '+%F %T')] $*" | tee -a experiments/queue.log; }
 log "fewshot start $(basename $D)"
 for s in $SEEDS; do
