@@ -492,3 +492,15 @@ the agent's input (E40b's FC layer is widened with zero weights) and archives mi
 **7-4 becomes reliable: 90% greedy (E41a) / 70% (E41b)**, up from 40%. **4-4 and 8-4 stay at 0%**, with progress frozen at 70% / 51%. All-32 greedy
 is 76.9% / 75.0% (E40b 77.2%). In 4-4 the agent never reaches the passing route (bottom corridor), and in 8-4 it never enters the right pipes, so
 these two are an exploration problem, not a perception one. Evals: `goalA-final/E41{a,b}/`.
+
+## E42: scripted route search for 4-4 and 8-4
+A Go-Explore-style search from saved states (`scripts/route_search.py`, 22 parallel processes). **4-4: found by 22/22 workers in ~100 s.**
+The route runs through the bottom of three corridors (Mario's height y≈152-176 between x≈1536 and 2304), dropping in at x≈1566.
+**8-4: found by 3/22 in 45 min**, using pipe warps entered with DOWN (x 271 → 1848, 2440 → 3128, 1074 → 4152). Both replay to the axe from the
+level start. Routes: `goalA-final/routes/`.
+
+## E43: route-seeded mid-level starts (fine-tuning E41a, 40M steps, 2 seeds)
+States along both routes were added to the mid-start archive (`--mid-start-seed`). **4-4 and 8-4 stay at 0% from the level start.** Probes
+show the routes being learned from the end backwards: 4-4's bottom corridor partly, and 8-4's last segment fully (5/5 from x≈4482). But the
+decisive branch points are not learned, neither the drop into 4-4's bottom corridor nor any 8-4 pipe entry, because they get well under 1%
+of the practice. Next: dense seeds at the branch points, and more practice there.
