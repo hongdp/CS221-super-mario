@@ -362,3 +362,24 @@ def test_mid_start_y_bands_key_includes_height():
                 break
         keys = list(env._archive[env.level])
         assert keys and all(len(k) == 3 and 0 <= k[2] <= 3 for k in keys)
+
+
+def test_mid_start_seed_adds_route_states_for_training_resets(tmp_path):
+    import pickle
+
+    with closing(MarioEnv(levels=("1-1",), obs="tiles2", noop_max=0)) as env:
+        env.reset(seed=0, options={"level": "1-1"})
+        states = []
+        for _ in range(60):
+            env.step(RIGHT)
+            states.append(env._game.emu.get_state())
+        x_end = env._info(env._game.ram())["x_pos"]
+    route = tmp_path / "route.states.pkl"
+    route.write_bytes(pickle.dumps({"level": "1-1", "states": states}))
+    with closing(MarioEnv(levels=("1-1",), obs="tiles2", noop_max=0, mid_start_prob=1.0,
+                          mid_start_seed=str(route), mid_start_seed_every=20)) as env:  # fmt: skip
+        assert sorted(env._archive[env.level]) == [(-1, 20), (-1, 40)]
+        _, info = env.reset(seed=1)
+        assert env._mid_start and 40 < info["x_pos"] <= x_end
+        _, info = env.reset(options={"level": "1-1"})
+        assert not env._mid_start and info["x_pos"] < 50

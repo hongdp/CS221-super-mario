@@ -123,6 +123,11 @@ class EnvConfig:
     # Archive mid-level start states per (area, column, Mario height band of 64 px) instead of per column, so a
     # rarely reached route (e.g. 4-4's bottom corridor) gets its own start state instead of being shadowed.
     mid_start_y_bands: bool = False
+    # Comma-separated route files from scripts/route_search.py (pickles with "level" and "states"). Every
+    # mid_start_seed_every-th state along each route is added to that level's mid-level start archive, so
+    # training can practise a route the agent has never found by itself (a "demonstration", goal A).
+    mid_start_seed: str | None = None
+    mid_start_seed_every: int = 25
     mid_start_bucket: int = 256
     mid_start_confirm: int = 30
     rom_path: str | None = None
@@ -218,6 +223,8 @@ class MarioEnv(gym.Env):
         self._archive: dict[Level, dict[tuple[int, ...], bytes]] = {}  # mid-level start states
         self._pending: tuple[tuple[int, ...], bytes, int] | None = None
         self._mid_start = False
+        if config.mid_start_seed:
+            self._seed_archive(config.mid_start_seed, config.mid_start_seed_every)
         self._attempt, self._trial_level = 0, None
         self._prev_action, self._prev_reward, self._first_step = -1, 0.0, True
         self._game = smb.SMBGame(config.rom_path)
@@ -485,6 +492,21 @@ class MarioEnv(gym.Env):
                 free = range(max(ground - 4, 0), ground)
             if row >= 1 and all(column[r] == 0 for r in free):
                 emu.write(base + 16 * row, _NOISE_BLOCK)
+
+    def _seed_archive(self, paths: str, every: int) -> None:
+        import pickle
+
+        for path in paths.split(","):
+            with open(path, "rb") as f:
+                route = pickle.load(f)
+            level = Level.parse(route["level"]) if isinstance(route["level"], str) else route["level"]
+            if level not in self.levels:
+                continue
+            archive = self._archive.setdefault(level, {})
+            for i in range(every, len(route["states"]), every):
+                archive[(-1, i)] = route["states"][
+                    i
+                ]  # (-1, step) keys never collide with (area, column) keys
 
     def _mid_start_allowed(self) -> bool:
         return not self.config.mid_start_levels or str(self.level) in self.config.mid_start_levels
