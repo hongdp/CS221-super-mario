@@ -14,7 +14,7 @@ rewrite ports it to a modern stack and pursues two goals:
 | B, unseen levels, cold start | **30.2 ± 1.2%** progress (vs 21.5 ± 1.0 for a full-screen view) | E21, 2/8 window |
 | B, unseen levels, brief practice | 40.5% progress after 25k steps of fine-tuning, 2.5x a policy trained from scratch | E30 |
 
-Every experiment (E1-E40; E41 is running) is logged with its hypothesis, pre-registered success criteria and outcome in
+Every experiment (E1-E41) is logged with its hypothesis, pre-registered success criteria and outcome in
 [`results/EXPERIMENTS.md`](results/EXPERIMENTS.md). The original 2017 code is kept in [`legacy/`](legacy/README.md).
 
 ## Quick start
@@ -147,13 +147,14 @@ means argmax actions.
 | E25 + swim fix + weighted levels | 29 | 180M | **87.2 / 83.8%** | 27 / 26 of 29 levels ≥ 50% |
 | E27b, from scratch with all fixes | 32 | 200M | 63.8% (non-maze 70.3%) | mazes unsolved, looping on the same branch |
 | E40b, E27b + maze loop penalty + maze mid-starts | 32 | 240M | **77.2%** (non-maze 83.8%) | **7-4 cleared 4/10**, 30 of 32 levels cleared at least once |
+| E41a, E40b + position / maze-state inputs + banded archive | 32 | +40M | 76.9% (non-maze 81.7%) | **7-4 at 90%**; 4-4 / 8-4 still 0% |
 
 Training length was the first bottleneck (14% completion at 10M, 65% at 100M). After that, each step forward came from
 tracing a level the agent could not clear: the ceiling warp-zone trap, the swim controls, the hammers missing from the grid,
 and the maze loops. **Still unsolved: 4-4 and 8-4.** 7-4 and 8-4 are multi-checkpoint loop zones whose state the game
 keeps in RAM. 4-4 is a single checkpoint with three parallel corridors, and the agent never finds the passing one (probably
-the bottom corridor, reached through one gap among deadly ones). E41 is testing position / maze-state inputs and a
-height-banded mid-start archive for these. Per-level evaluations: `results/goalA-100m/`, `results/goalA-final/`.
+the bottom corridor, reached through one gap among deadly ones). E41 added position / maze-state inputs and a height-banded
+mid-start archive: 7-4 went from 40% to 90%, but the agent still never reaches the passing routes of 4-4 and 8-4. Per-level evaluations: `results/goalA-100m/`, `results/goalA-final/`.
 
 ### Goal B: unseen levels
 
@@ -211,7 +212,8 @@ the default.
 
 ## Open directions
 
-- Goal A: 4-4 and 8-4 (E41 running), then one consolidated long run.
+- Goal A: 4-4 and 8-4 need their passing routes found (scripted search or a demonstration) to seed practice; then one
+  consolidated long run.
 - Goal B: more diverse training content (many more levels, e.g. procedurally generated ones) looks like the main lever left.
   A decisive RL² test would need ~100M+ steps and many more evaluation trials.
 
