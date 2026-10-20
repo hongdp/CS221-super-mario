@@ -14,7 +14,7 @@ rewrite ports it to a modern stack and pursues two goals:
 | B, unseen levels, cold start | **30.2 ± 1.2%** progress (vs 21.5 ± 1.0 for a full-screen view) | E21, 2/8 window |
 | B, unseen levels, brief practice | 40.5% progress after 25k steps of fine-tuning, 2.5x a policy trained from scratch | E30 |
 
-Every experiment (E1-E41) is logged with its hypothesis, pre-registered success criteria and outcome in
+Every experiment (E1-E43) is logged with its hypothesis, pre-registered success criteria and outcome in
 [`results/EXPERIMENTS.md`](results/EXPERIMENTS.md). The original 2017 code is kept in [`legacy/`](legacy/README.md).
 
 ## Quick start
@@ -154,7 +154,12 @@ tracing a level the agent could not clear: the ceiling warp-zone trap, the swim 
 and the maze loops. **Still unsolved: 4-4 and 8-4.** 7-4 and 8-4 are multi-checkpoint loop zones whose state the game
 keeps in RAM. 4-4 is a single checkpoint with three parallel corridors, and the agent never finds the passing one (probably
 the bottom corridor, reached through one gap among deadly ones). E41 added position / maze-state inputs and a height-banded
-mid-start archive: 7-4 went from 40% to 90%, but the agent still never reaches the passing routes of 4-4 and 8-4. Per-level evaluations: `results/goalA-100m/`, `results/goalA-final/`.
+mid-start archive: 7-4 went from 40% to 90%, but the agent still never reaches the passing routes of 4-4 and 8-4.
+A Go-Explore-style search from saved states (`scripts/route_search.py`, E42) then found verified routes for both: 4-4 in ~100 s (the
+bottom corridor, as suspected) and 8-4 in 45 min (three pipe warps entered with DOWN). Seeding mid-level starts with those routes
+(E43, `--mid-start-seed`) taught the agent the late sections, learned from the end backwards, but not the branch points (the drop into
+4-4's bottom corridor, the 8-4 pipe entries), which got well under 1% of the practice. Both levels remain at 0% from the level start.
+Per-level evaluations: `results/goalA-100m/`, `results/goalA-final/`.
 
 ### Goal B: unseen levels
 
@@ -212,8 +217,8 @@ the default.
 
 ## Open directions
 
-- Goal A: 4-4 and 8-4 need their passing routes found (scripted search or a demonstration) to seed practice; then one
-  consolidated long run.
+- Goal A: concentrate practice at the 4-4 / 8-4 branch points (dense route seeds just before them, more episodes on these
+  levels); then one consolidated long run.
 - Goal B: more diverse training content (many more levels, e.g. procedurally generated ones) looks like the main lever left.
   A decisive RL² test would need ~100M+ steps and many more evaluation trials.
 
@@ -237,7 +242,8 @@ src/mario_rl/
   recurrent.py  RL²: recurrent PPO over trials, trial evaluation
   evaluate.py   per-level summaries; plotting.py: curves; cli.py: `mario-rl` entry point
 results/        curated evaluations, configs and plots for every experiment; EXPERIMENTS.md is the log
-scripts/        fewshot.sh / fewshot_summary.py (few-shot score), trial_eval.py (RL² trials), widen_vec.py (add vec inputs to a checkpoint)
+scripts/        fewshot.sh / fewshot_summary.py (few-shot score), trial_eval.py (RL² trials), widen_vec.py (add vec inputs to a checkpoint),
+                route_search.py (Go-Explore route search from saved states)
 tests/          unit tests, real-emulator env tests, end-to-end train/eval tests
 legacy/         the 2017 TensorFlow 1 / DQN project and its results
 roms/           Super Mario Bros. (NES) ROM
