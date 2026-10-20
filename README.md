@@ -17,6 +17,25 @@ rewrite ports it to a modern stack and pursues two goals:
 Every experiment (E1-E43) is logged with its hypothesis, pre-registered success criteria and outcome in
 [`results/EXPERIMENTS.md`](results/EXPERIMENTS.md). The original 2017 code is kept in [`legacy/`](legacy/README.md).
 
+## Level clears
+
+One clear of every level, recorded from the level start. **30 of 32 are played by a single agent** (E43 seed 2, greedy actions;
+the first episode for 28 levels, a later one for 7-2 and 7-3). No agent clears **4-4 and 8-4** yet, so those two show the route found by
+the scripted search (E42), replayed from the level start; that is not the agent playing. Click a preview for the full-size video
+(MP4, real time). The clips are regenerated with `scripts/record_clears.py`, and `results/videos/manifest.json` records which run and
+episode produced each one.
+
+| | | | |
+|---|---|---|---|
+| <a href="results/videos/1-1.mp4"><img src="results/videos/preview/1-1.gif" width="180" alt="1-1 clear"></a><br>1-1 · agent | <a href="results/videos/1-2.mp4"><img src="results/videos/preview/1-2.gif" width="180" alt="1-2 clear"></a><br>1-2 · agent | <a href="results/videos/1-3.mp4"><img src="results/videos/preview/1-3.gif" width="180" alt="1-3 clear"></a><br>1-3 · agent | <a href="results/videos/1-4.mp4"><img src="results/videos/preview/1-4.gif" width="180" alt="1-4 clear"></a><br>1-4 · agent |
+| <a href="results/videos/2-1.mp4"><img src="results/videos/preview/2-1.gif" width="180" alt="2-1 clear"></a><br>2-1 · agent | <a href="results/videos/2-2.mp4"><img src="results/videos/preview/2-2.gif" width="180" alt="2-2 clear"></a><br>2-2 · agent | <a href="results/videos/2-3.mp4"><img src="results/videos/preview/2-3.gif" width="180" alt="2-3 clear"></a><br>2-3 · agent | <a href="results/videos/2-4.mp4"><img src="results/videos/preview/2-4.gif" width="180" alt="2-4 clear"></a><br>2-4 · agent |
+| <a href="results/videos/3-1.mp4"><img src="results/videos/preview/3-1.gif" width="180" alt="3-1 clear"></a><br>3-1 · agent | <a href="results/videos/3-2.mp4"><img src="results/videos/preview/3-2.gif" width="180" alt="3-2 clear"></a><br>3-2 · agent | <a href="results/videos/3-3.mp4"><img src="results/videos/preview/3-3.gif" width="180" alt="3-3 clear"></a><br>3-3 · agent | <a href="results/videos/3-4.mp4"><img src="results/videos/preview/3-4.gif" width="180" alt="3-4 clear"></a><br>3-4 · agent |
+| <a href="results/videos/4-1.mp4"><img src="results/videos/preview/4-1.gif" width="180" alt="4-1 clear"></a><br>4-1 · agent | <a href="results/videos/4-2.mp4"><img src="results/videos/preview/4-2.gif" width="180" alt="4-2 clear"></a><br>4-2 · agent | <a href="results/videos/4-3.mp4"><img src="results/videos/preview/4-3.gif" width="180" alt="4-3 clear"></a><br>4-3 · agent | <a href="results/videos/4-4.mp4"><img src="results/videos/preview/4-4.gif" width="180" alt="4-4 clear"></a><br>4-4 · **search route** |
+| <a href="results/videos/5-1.mp4"><img src="results/videos/preview/5-1.gif" width="180" alt="5-1 clear"></a><br>5-1 · agent | <a href="results/videos/5-2.mp4"><img src="results/videos/preview/5-2.gif" width="180" alt="5-2 clear"></a><br>5-2 · agent | <a href="results/videos/5-3.mp4"><img src="results/videos/preview/5-3.gif" width="180" alt="5-3 clear"></a><br>5-3 · agent | <a href="results/videos/5-4.mp4"><img src="results/videos/preview/5-4.gif" width="180" alt="5-4 clear"></a><br>5-4 · agent |
+| <a href="results/videos/6-1.mp4"><img src="results/videos/preview/6-1.gif" width="180" alt="6-1 clear"></a><br>6-1 · agent | <a href="results/videos/6-2.mp4"><img src="results/videos/preview/6-2.gif" width="180" alt="6-2 clear"></a><br>6-2 · agent | <a href="results/videos/6-3.mp4"><img src="results/videos/preview/6-3.gif" width="180" alt="6-3 clear"></a><br>6-3 · agent | <a href="results/videos/6-4.mp4"><img src="results/videos/preview/6-4.gif" width="180" alt="6-4 clear"></a><br>6-4 · agent |
+| <a href="results/videos/7-1.mp4"><img src="results/videos/preview/7-1.gif" width="180" alt="7-1 clear"></a><br>7-1 · agent | <a href="results/videos/7-2.mp4"><img src="results/videos/preview/7-2.gif" width="180" alt="7-2 clear"></a><br>7-2 · agent | <a href="results/videos/7-3.mp4"><img src="results/videos/preview/7-3.gif" width="180" alt="7-3 clear"></a><br>7-3 · agent | <a href="results/videos/7-4.mp4"><img src="results/videos/preview/7-4.gif" width="180" alt="7-4 clear"></a><br>7-4 · agent |
+| <a href="results/videos/8-1.mp4"><img src="results/videos/preview/8-1.gif" width="180" alt="8-1 clear"></a><br>8-1 · agent | <a href="results/videos/8-2.mp4"><img src="results/videos/preview/8-2.gif" width="180" alt="8-2 clear"></a><br>8-2 · agent | <a href="results/videos/8-3.mp4"><img src="results/videos/preview/8-3.gif" width="180" alt="8-3 clear"></a><br>8-3 · agent | <a href="results/videos/8-4.mp4"><img src="results/videos/preview/8-4.gif" width="180" alt="8-4 clear"></a><br>8-4 · **search route** |
+
 ## Quick start
 
 ```bash
@@ -243,7 +262,7 @@ src/mario_rl/
   evaluate.py   per-level summaries; plotting.py: curves; cli.py: `mario-rl` entry point
 results/        curated evaluations, configs and plots for every experiment; EXPERIMENTS.md is the log
 scripts/        fewshot.sh / fewshot_summary.py (few-shot score), trial_eval.py (RL² trials), widen_vec.py (add vec inputs to a checkpoint),
-                route_search.py (Go-Explore route search from saved states)
+                route_search.py (Go-Explore route search from saved states), record_clears.py (level-clear videos)
 tests/          unit tests, real-emulator env tests, end-to-end train/eval tests
 legacy/         the 2017 TensorFlow 1 / DQN project and its results
 roms/           Super Mario Bros. (NES) ROM
